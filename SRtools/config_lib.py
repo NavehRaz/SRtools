@@ -20,6 +20,64 @@ def read_configs(folder_path):
     #get the latest parameters
     return config
 
+def config_to_dict(config, mcmc_convert=True, custom_keys=None):
+    """
+    Convert the config file to a dictionary.
+    """
+    config_dict = {}
+    for section in config.sections():
+        for key, value in config.items(section):
+            config_dict[key] = value
+
+    # Helper function to get the correct converter
+    def get_converter(value_type):
+        converters = {
+            'int': int,
+            'float': float,
+            'bool': bool,
+            'astliteral': ast.literal_eval,
+            'str': str
+        }
+        return converters.get(value_type)
+
+    # Convert the values to the correct type
+    if mcmc_convert:
+        predefined_keys = {
+            'nsteps': 'int',
+            'npeople': 'int',
+            't_end': 'int',
+            'nwalkers': 'int',
+            'h5_file_name': 'str',
+            'n_mcmc_steps': 'int',
+            'metric': 'str',
+            'time_range': 'astliteral',
+            'time_step_multiplier': 'int',
+            'data_file': 'str',
+            'seed_file': 'str',
+            'variations': 'astliteral',
+            'prior': 'astliteral',
+            'transform': 'bool',
+            'external_hazard': 'str',
+            'data_dt': 'float',
+            'ndims': 'int',
+            'hetro': 'bool'
+        }
+
+        # Merge predefined keys with custom keys if provided
+        if custom_keys:
+            predefined_keys.update(custom_keys)
+
+        for key, value_type in predefined_keys.items():
+            if key in config_dict.keys():
+                converter = get_converter(value_type)
+                if converter:
+                    try:
+                        conv = converter(config_dict[key])
+                    except (ValueError, SyntaxError):
+                        conv = converter(config_dict[key]) # Handle conversion errors gracefully
+                    config_dict[key] = conv
+
+    return config_dict
 
 def add_submition_folder(config, folder, path):
     """

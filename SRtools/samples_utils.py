@@ -2,13 +2,23 @@ import numpy as np
 from tqdm import tqdm
 from collections import defaultdict
 import pandas as pd
+import ast
+import json
+import plotly.graph_objects as go
+
 
 
 
 
 class Posterior:
-    def __init__(self, samples, lnprobs, bins, log=False, progress_bar=True):
+    def __init__(self, samples, lnprobs, bins, log=False, progress_bar=True, config_params=None, help_text = None, prior=None, sorting=True):
         
+
+        self.mins = None
+        self.maxs = None
+        self.ranges = None
+        self.norm_unique_samples = None
+
         #if samples is none make empty posterrior
         if samples is None:
             self.samples = None
@@ -18,9 +28,13 @@ class Posterior:
             self.lnprobs_density = None
             self.dthetas = None
             self.evidence = None
+            self.prior_lnprobs = None
             self.df = None
+
             return
 
+        self.config_params = config_params
+        self.help_text = help_text
         self.samples = samples.copy()
         self.lnprobs = lnprobs.copy()
         #check that bins and log are lists of the correct length (equal to the number of features-samples.shape[1]
@@ -37,24 +51,81 @@ class Posterior:
         self.logged_samples  = [np.log(samples[:,i]) if log[i] else samples[:,i] for i in range(samples.shape[1])]
         self.logged_samples = np.array(self.logged_samples).T
         self.progress_bar = progress_bar
-        self.unique_samples, self.posterior, self.lnprobs_density, self.dthetas, self.evidence = get_posterior(self.logged_samples, lnprobs, bins, log=False, progress_bar=progress_bar, full_output=True)
+        self.unique_samples, self.posterior, self.lnprobs_density, self.dthetas, self.evidence, self.prior_lnprobs = get_posterior(self.logged_samples, lnprobs, bins, log=False, progress_bar=progress_bar, full_output=True, prior=prior)
         self.df = None
+
+        # Ensure unique_samples is sorted (if not already sorted)
+        if sorting:
+            sort_indices = np.lexsort(self.unique_samples.T[::-1])  # Sort by all dimensions
+            self.unique_samples = self.unique_samples[sort_indices]
+            self.lnprobs_density = self.lnprobs_density[sort_indices]
+            self.dthetas = self.dthetas[sort_indices]
+            if self.posterior is not None:
+                self.posterior = self.posterior[sort_indices]
+            if self.evidence is not None and type(self.evidence) is np.ndarray:
+                if  len(self.evidence) == len(self.lnprobs_density):
+                    self.evidence = self.evidence[sort_indices]
+
+            # Normalize the unique samples
+            self.__make_normalized_samples__()
+        #Print warning if the samples are not sorted
+        else:
+            print("Warning: The samples and posterior are not sorted. This may cause problems when using the posterior to calculate probabilities.")
+
+    def __make_normalized_samples__(self):
+        """
+        Normalize the unique samples to the range [0, 1] for each feature.
+        """
+        self.mins = self.unique_samples.min(axis=0)
+        self.maxs = self.unique_samples.max(axis=0)
+        self.ranges = self.maxs - self.mins
+        # Avoid division by zero for constant features
+        self.ranges[self.ranges == 0] = 1.0
+        self.norm_unique_samples = (self.unique_samples - self.mins) / self.ranges
 
     def marginalize_posterior(self, features, density = True):
         unique_samples, lnprobs , dthetas = marginalized_posterior(self.unique_samples, self.lnprobs_density-self.evidence, features, self.dthetas, density=density)
         return unique_samples, lnprobs, dthetas
 
-    def get_stats(self, stats=['mean','std'],percentiles = [16, 50, 95], center_percentiles=True, smooth_mode = False):
-        return getStats(self.unique_samples, self.lnprobs_density-self.evidence, self.dthetas, stats=stats, percentiles=percentiles, center_percentiles=center_percentiles, smooth_mode=smooth_mode)
+    def get_stats(self, stats=['mean','std'],percentiles = [16, 50, 95], center_percentiles=True, smooth_mode = False, prior_lnprobs=None):
+        if prior_lnprobs is None and hasattr(self, 'prior_lnprobs'):
+            prior_lnprobs = self.prior_lnprobs if self.prior_lnprobs is not None else 0
+        return getStats(self.unique_samples, self.lnprobs_density-self.evidence, self.dthetas, stats=stats, percentiles=percentiles, center_percentiles=center_percentiles, smooth_mode=smooth_mode, prior_lnprobs=prior_lnprobs)
 
-    def plot_1d_posteriors(self, ax=None, colors=None, labels=None, truths=None, scale ='log',show_ln_prob = False, stats = ['mean',"std","percentiles", "mode"],percentiles = [16, 50, 95],smooth_mode=False):
-        plot_1d_posteriors(self.unique_samples, self.lnprobs_density-self.evidence, self.dthetas, ax=ax, colors=colors, labels=labels, truths=truths,smooth_mode=smooth_mode, scale=scale, show_ln_prob=show_ln_prob, stats=stats, percentiles=percentiles, log=self.log)
+    def plot_1d_posteriors(self, ax=None, colors=None, labels=None, truths=None, scale ='log',show_ln_prob = False, stats = ['mean','std','percentiles', 'mode'],percentiles = [16, 50, 95],smooth_mode=False, prior_lnprobs=None):
+        if prior_lnprobs is None and hasattr(self, 'prior_lnprobs'):
+            prior_lnprobs = self.prior_lnprobs if self.prior_lnprobs is not None else 0
+        plot_1d_posteriors(self.unique_samples, self.lnprobs_density-self.evidence, self.dthetas, ax=ax, colors=colors, labels=labels, truths=truths, smooth_mode=smooth_mode, scale=scale, show_ln_prob=show_ln_prob, stats=stats, percentiles=percentiles, log=self.log, prior_lnprobs=prior_lnprobs)
 
-    def plot_2d_posteriors(self, features, ax=None, labels=None, truths=None, scale ='log',show_ln_prob = False, stats = ['mean',"std","percentiles", "mode"],percentiles = [16, 50, 95],plot_type = 'contourf', **kwargs):
-        return plot_2d_posteriors(self.unique_samples, self.lnprobs_density-self.evidence, self.dthetas, features, ax=ax, labels=labels, truths=truths, scale=scale, show_ln_prob=show_ln_prob, stats=stats, percentiles=percentiles, log=self.log,plot_type=plot_type, **kwargs)
+    def plot_2d_posteriors(self, features, ax=None, labels=None, truths=None, scale='log', show_ln_prob=False, stats=['mean','std','percentiles', 'mode'], percentiles=[16, 50, 95], plot_type='contourf', prior_lnprobs=None, log=None, smooth_mode=False, **kwargs):
+        """
+        Plot 2D marginalized posteriors using the standalone plot_2d_posteriors function for consistency.
+        """
+        if prior_lnprobs is None and hasattr(self, 'prior_lnprobs'):
+            prior_lnprobs = self.prior_lnprobs if self.prior_lnprobs is not None else 0
+        return plot_2d_posteriors(
+            self.unique_samples,
+            self.lnprobs_density - self.evidence,
+            self.dthetas,
+            features,
+            ax=ax,
+            labels=labels,
+            truths=truths,
+            scale=scale,
+            show_ln_prob=show_ln_prob,
+            stats=stats,
+            percentiles=percentiles,
+            plot_type=plot_type,
+            prior_lnprobs=prior_lnprobs,
+            log=self.log if log is None else log,
+            smooth_mode=smooth_mode,
+            **kwargs
+        )
 
-    def corner_plot(self, ax=None, colors=None, labels=None, truths=None, scale ='log',show_ln_prob = False, stats = ['mean',"std","percentiles", "mode"],percentiles = [16, 50, 95],plot_type = 'contourf', **kwargs):
-        return corner_plot(self.unique_samples, self.lnprobs_density-self.evidence, self.dthetas, ax=ax, colors=colors, labels=labels, truths=truths, scale=scale, show_ln_prob=show_ln_prob, stats=stats, percentiles=percentiles, log=self.log,plot_type=plot_type, **kwargs)
+    def corner_plot(self, ax=None, colors=None, labels=None, truths=None, scale ='log',show_ln_prob = False, stats = ['mean','std','percentiles', 'mode'],percentiles = [16, 50, 95],plot_type = 'contourf', prior_lnprobs=0, **kwargs):
+        if prior_lnprobs is None and hasattr(self, 'prior_lnprobs'):
+            prior_lnprobs = self.prior_lnprobs if self.prior_lnprobs is not None else 0
+        return corner_plot(self.unique_samples, self.lnprobs_density-self.evidence, self.dthetas, ax=ax, colors=colors, labels=labels, truths=truths, scale=scale, show_ln_prob=show_ln_prob, stats=stats, percentiles=percentiles, log=self.log, plot_type=plot_type, prior_lnprobs=prior_lnprobs, **kwargs)
     
     def create_posterior_df(self,transforms = ['default'],labels = None, ds=None,ds_labels=None, kappa=0.5, filepath = None, smooth_mode = True, rescale=None):
         """
@@ -100,13 +171,14 @@ class Posterior:
 
 
         if 'default' in transforms:
-            transforms = [identity_transform,default_transform1,default_transform2,default_transform3,default_transform4,default_transform5]
+            transforms = [identity_transform,default_transform1,default_transform2,default_transform3,default_transform4,default_transform5,default_transform6]
             if labels is None:
                 labels = [["xc/eta","beta/eta","xc^2/epsilon","xc"],["eta","beta","epsilon","xc"],
                           ["sqrt(xc/eta)","s= eta^0.5*xc^1.5/epsilon","beta*xc/epsilon","xc"],
                           ["eta*xc/epsilon","Fx=beta^2/eta*xc","Dx =beta*epsilon/eta*xc^2","xc"],
                           ["Pk=beta*k/epsilon","Fk=beta^2/eta*k","beta/eta","xc"],
-                          ["Dk =beta*epsilon/eta*k^2","Fk^2/Dk=beta^3/eta*epsilon","beta/eta","xc"]]
+                          ["Dk =beta*epsilon/eta*k^2","Fk^2/Dk=beta^3/eta*epsilon","beta/eta","xc"],
+                          ["beta^2/epsilon","k/beta","k/epsilon","xc"]]
             if n_features > 4:
                 extra_labels = ['ExtH']
                 extra_labels += [f'lambda{i}' for i in range(n_features-4)]
@@ -140,7 +212,7 @@ class Posterior:
                     continue
             
                 marginalized_samples, marginalized_lnprobs, marginalized_dthetas = post.marginalize_posterior( [j for j in range(n_features) if j != i], density = True)
-                stats_dict = getStats(marginalized_samples, marginalized_lnprobs, marginalized_dthetas, stats=stats, percentiles=percentiles,smooth_mode=smooth_mode)
+                stats_dict = getStats(marginalized_samples, marginalized_lnprobs, marginalized_dthetas, stats=stats, percentiles=percentiles, smooth_mode=smooth_mode)
                 #if log[i] then exponentiate the mean, mode and percentiles. std is [exp(mean+std)-exp(mean),exp(mean)-exp(mean-std)]
                 if self.log[i]:
                     stats_dict['std'] = [np.exp(stats_dict['mean']+stats_dict['std'])-np.exp(stats_dict['mean']),np.exp(stats_dict['mean'])-np.exp(stats_dict['mean']-stats_dict['std'])]
@@ -195,7 +267,175 @@ class Posterior:
         self.__init__(new_samples, self.lnprobs, self.bins, log=self.log, progress_bar=self.progress_bar)
         return self
     
-    def save(self, filepath):
+    
+    def get_sample_probability(self, sample, density = False):
+        """
+        Calculate the probability of a sample given a posterior object using binary search for efficiency.
+        
+        Parameters:
+        posterior: Posterior
+            The posterior object containing unique_samples, lnprobs_density, and dthetas.
+        sample: np.ndarray
+            The sample for which to calculate the probability. Should have the same dimensionality as the posterior's unique_samples.
+        
+        Returns:
+        probability: float
+            The probability of the sample.
+        """
+        unique_samples = self.unique_samples
+        lnprobs_density = self.lnprobs_density
+        dthetas = self.dthetas
+        posterior = self.posterior
+
+        sample =sample.copy()
+
+        #log the sample according to the log flag
+        if hasattr(self, "log") and isinstance(self.log, (list, np.ndarray)):
+            sample = np.array([
+                np.log(val) if log_flag else val
+                for val, log_flag in zip(sample, self.log)
+            ])
+
+        norm_sample = (sample - self.mins) / self.ranges
+
+        # Find the index of the nearest sample (using Euclidean distance)
+        distances = np.linalg.norm(self.norm_unique_samples - norm_sample, axis=1)
+        idx = np.argmin(distances)
+        print(f"Sample: {sample}, Nearest sample index: {idx}, Distance: {distances[idx]}")
+        # Check if the sample lies within the bin boundaries
+        if idx < len(unique_samples):
+            bin_min = unique_samples[idx] - 0.5 * dthetas[idx]
+            bin_max = unique_samples[idx] + 0.5 * dthetas[idx]
+            if np.all((sample >= bin_min) & (sample <= bin_max)):
+                # Calculate the probability
+                if density:
+                    probability = lnprobs_density[idx] - self.evidence
+                else:
+                    probability = posterior[idx]  
+                return probability
+
+        # If the sample does not fall into any bin, return 0
+        return -np.inf
+    
+    
+    def get_probability_in_region(self, sample, dtheta, density = False, log_check = True):
+        """
+        Calculate the total probability in the region defined by sample ± dtheta/2,
+        counting each bin proportional to the overlap fraction.
+        Parameters:
+            sample : np.ndarray
+                The center of the region (shape: n_features).
+            dtheta : np.ndarray or float
+                The width of the region for each feature (shape: n_features or scalar).
+        Returns:
+            total_prob : float
+                The total probability mass in the specified region.
+        """
+        sample = np.asarray(sample)
+        sample = sample.copy()
+
+        # log the sample according to the log flag
+        if log_check and hasattr(self, "log") and isinstance(self.log, (list, np.ndarray)):
+            sample = np.array([
+                np.log(val) if log_flag else val
+                for val, log_flag in zip(sample, self.log)
+            ])
+
+        dtheta = np.asarray(dtheta)
+        if dtheta.ndim == 0:
+            dtheta = np.full(sample.shape, dtheta)
+        region_min = sample - dtheta / 2
+        region_max = sample + dtheta / 2
+
+        # Vectorized bin boundaries
+        bin_min = self.unique_samples - 0.5 * self.dthetas
+        bin_max = self.unique_samples + 0.5 * self.dthetas
+
+        # Vectorized overlap calculation
+        overlap_min = np.maximum(region_min, bin_min)
+        overlap_max = np.minimum(region_max, bin_max)
+        overlap = np.maximum(overlap_max - overlap_min, 0)
+        overlap_volume = np.prod(overlap, axis=1)
+        bin_volume = np.prod(self.dthetas, axis=1)
+
+        # Only consider bins with nonzero overlap
+        mask = overlap_volume > 0
+        fractions = overlap_volume[mask] / bin_volume[mask]
+        probs = self.posterior[mask] + np.log(fractions)
+        from scipy.special import logsumexp
+        if probs.size == 0:
+            return -np.inf
+        total_prob = logsumexp(probs)
+        if density:
+            total_prob -= np.log(np.prod(dtheta))
+        return total_prob
+    
+    
+    def get_mode(self, idx=False):
+        """
+        Get the mode of the posterior distribution.
+        returns:
+        mode: np.ndarray
+            The mode of the posterior distribution.
+        """
+        mode_index = np.argmax(self.posterior)
+        mode = self.unique_samples[mode_index]
+        # Exponentiate only the indexes where self.log is True
+        if hasattr(self, "log") and isinstance(self.log, (list, np.ndarray)):
+            mode = np.array([
+            np.exp(val) if log_flag else val
+            for val, log_flag in zip(mode, self.log)
+            ])
+        if idx:
+            return mode, mode_index
+        return mode
+    
+
+    def plot_posterior3D(self, features, ax=None, labels=None, truths=None, scale ='log',show_ln_prob = True, stats = ['mean',"std","percentiles", "mode"],percentiles = [16, 50, 95],plot_type = 'contourf', **kwargs):
+        """
+        Plot the posterior distribution in 3D.
+        parameters:
+        features: list
+            The features to plot. Should be a list of 3 integers.
+        ax: matplotlib.axes._axes.Axes, optional
+            The axes to plot on. If None, a new figure and axes will be created.
+        labels: list, optional
+            The labels for the axes. If None, the default labels will be used.
+        truths: list, optional
+            The true values of the parameters. If None, no true values will be plotted.
+        scale: str, optional
+            The scale of the plot. Default is 'log'.
+        show_ln_prob: bool, optional
+            Whether to show the log-probability or not. Default is False.
+        stats: list, optional
+            The statistics to show on the plot. Default is ['mean',"std","percentiles", "mode"].
+        percentiles: list, optional
+            The percentiles to show on the plot. Default is [16, 50, 95].
+        plot_type: str, optional
+            The type of plot to create. Default is 'contourf'.
+        **kwargs: keyword arguments
+            Additional arguments to pass to the plotting function.
+        """        
+
+        return plot_3d_posterior(self.unique_samples, self.lnprobs_density-self.evidence, self.dthetas, features, ax=ax, labels=labels, truths=truths, scale=scale, show_ln_prob=show_ln_prob, stats=stats, percentiles=percentiles, log=self.log,plot_type=plot_type, **kwargs)
+
+    def plot_posterior3D_interactive(self, features, labels=None, truths=None, show_ln_prob=True):
+        """
+        Plot the posterior distribution in 3D interactively using Plotly.
+        parameters:
+        features: list
+            The features to plot. Should be a list of 3 integers.
+        labels: list, optional
+            The labels for the axes. If None, the default labels will be used.
+        truths: list, optional
+            The true values of the parameters. If None, no true values will be plotted.
+        show_ln_prob: bool, optional
+            Whether to show the log-probability or not. Default is False.
+        """
+        return plot_3d_posterior_interactive(self.unique_samples, self.lnprobs_density-self.evidence, features, labels=labels, truths=truths, show_ln_prob=show_ln_prob)
+
+    
+    def save_pickle(self, filepath):
         """
         Save the posterior object to a file.
         parameters:
@@ -206,8 +446,140 @@ class Posterior:
         with open(filepath, 'wb') as f:
             pickle.dump(self, f)
 
+    def save_to_file(self, filepath, save_raw_data=True):
+        """
+        Save the posterior attributes to a CSV file and optionally save raw data (samples and lnprobs) to a separate binary file.
+        parameters:
+        filepath: str
+            The base path to save the CSV and binary files.
+        save_raw_data: bool, optional
+            Whether to save the binary file containing raw data (samples and lnprobs). Default is True.
+        """
+        import numpy as np
+        import pandas as pd
+        # Save metadata to a CSV file
+        data = {
+            "log": [self.log] * self.unique_samples.shape[0],
+            "unique_samples": self.unique_samples.tolist() if self.unique_samples is not None else None,
+            "lnprobs_density": self.lnprobs_density.tolist() if self.lnprobs_density is not None else None,
+            "posterior": self.posterior.tolist() if self.posterior is not None else None,
+            "dthetas": self.dthetas.tolist() if self.dthetas is not None else None,
+            "evidence": self.evidence,
+            "config_params": [self.config_params] * self.unique_samples.shape[0] if self.config_params is not None else None,
+            "help_text": [self.help_text] * self.unique_samples.shape[0] if self.help_text is not None else None,
+            "prior_lnprobs": self.prior_lnprobs.tolist() if self.prior_lnprobs is not None else None,
+        }
 
-def load_posterior(filepath):
+        # Ensure the file has a .csv extension
+        if not filepath.endswith('.csv'):
+            filepath += '.csv'
+        pd.DataFrame(data).to_csv(filepath, index=False)
+
+        # Save large arrays (samples and lnprobs) to a separate binary file if save_raw_data is True
+        if save_raw_data:
+            binary_filepath = filepath.replace('.csv', '_data.npz')
+            with open(binary_filepath, 'wb') as f:
+                np.savez_compressed(
+                    f,
+                    samples=self.samples,
+                    lnprobs=self.lnprobs,
+                    config_params=json.dumps(self.config_params) if self.config_params is not None else None,
+                    help_text=self.help_text.encode('utf-8') if self.help_text is not None else None,
+                    prior_lnprobs=self.prior_lnprobs if self.prior_lnprobs is not None else None
+                )
+
+    @staticmethod
+    def load_from_file(filepath, load_raw_data=True):
+        """
+        Load posterior attributes from a CSV file and optionally load raw data (samples and lnprobs) from a separate binary file.
+        parameters:
+        filepath: str
+            The base path to load the CSV and binary files from.
+        load_raw_data: bool, optional
+            Whether to load the binary file containing raw data (samples and lnprobs). Default is True.
+        returns:
+        loaded_posterior: Posterior
+            The loaded posterior object.
+        """
+        import numpy as np
+        import pandas as pd
+        import ast
+
+        # Check if the file has a .csv extension
+        if not filepath.endswith('.csv'):
+            #add .csv to the end of the file name
+            filepath += '.csv'
+
+        # Load metadata from the CSV file
+        df = pd.read_csv(filepath)
+        posterior_data = {
+            "log": ast.literal_eval(df["log"].iloc[0]) if "log" in df.columns else None,
+            "unique_samples": np.array([ast.literal_eval(item) for item in df["unique_samples"].dropna()]),
+            "lnprobs_density": np.array([item for item in df["lnprobs_density"].dropna()]),
+            "posterior": np.array([item for item in df["posterior"].dropna()]),
+            "dthetas": np.array([ast.literal_eval(item) for item in df["dthetas"].dropna()]),
+            "evidence": df["evidence"].iloc[0] if "evidence" in df.columns else None,
+            "config_params": ast.literal_eval(df["config_params"].iloc[0]) if "config_params" in df.columns and pd.notna(df["config_params"].iloc[0]) else None,
+            "help_text": df["help_text"].iloc[0] if "help_text" in df.columns and pd.notna(df["help_text"].iloc[0]) else None,
+            "prior_lnprobs": np.array([item for item in df["prior_lnprobs"].dropna()]) if "prior_lnprobs" in df.columns else None,
+        }
+
+        # Initialize samples, lnprobs, and prior_lnprobs as None
+        samples = None
+        lnprobs = None
+        prior_lnprobs = posterior_data["prior_lnprobs"]
+
+        # Load large arrays (samples and lnprobs) from the binary file if load_raw_data is True
+        if load_raw_data:
+            binary_filepath = filepath.replace('.csv', '_data.npz')
+            with np.load(binary_filepath) as data:
+                samples = data['samples']
+                lnprobs = data['lnprobs']
+                if 'prior_lnprobs' in data:
+                    prior_lnprobs = data['prior_lnprobs']
+
+        # Create and populate the Posterior object
+        loaded_posterior = Posterior(samples=None, lnprobs=None, bins=None, log=False, progress_bar=True)
+        loaded_posterior.unique_samples = posterior_data["unique_samples"]
+        loaded_posterior.lnprobs_density = posterior_data["lnprobs_density"]
+        loaded_posterior.posterior = posterior_data["posterior"]
+        loaded_posterior.dthetas = posterior_data["dthetas"]
+        loaded_posterior.evidence = posterior_data["evidence"]
+        loaded_posterior.log = posterior_data["log"]
+        loaded_posterior.samples = samples
+        loaded_posterior.lnprobs = lnprobs
+        loaded_posterior.config_params = posterior_data["config_params"]
+        loaded_posterior.help_text = posterior_data["help_text"]
+        loaded_posterior.prior_lnprobs = prior_lnprobs
+        # Normalize the unique samples
+        loaded_posterior.__make_normalized_samples__()
+
+        return loaded_posterior
+    
+def load_raw_data_from_npz(filepath):
+    """
+    Load raw data (samples, lnprobs, config_params, and help_text) from an npz file.
+    parameters:
+    filepath: str
+        The path to the npz file.
+    returns:
+    data: dict
+        A dictionary containing the raw data.
+    """
+    with np.load(filepath, allow_pickle=True) as data:
+        help_text = data['help_text']
+        if help_text.item() is not None and help_text.size > 0:
+            help_text = help_text.tobytes().decode('utf-8')
+        raw_data = {
+            "samples": data['samples'].tolist(),
+            "lnprobs": data['lnprobs'].tolist(),
+            "config_params": json.loads(data['config_params'].item()) if 'config_params' in data and data['config_params'] is not None and isinstance(data['config_params'], np.ndarray) and data['config_params'].item() is not None else None,
+            "help_text": help_text
+        }
+    return raw_data
+
+
+def load_posterior_pickle(filepath):
     """
     Load a posterior object from a file.
     parameters:
@@ -390,7 +762,7 @@ def avarage_samples(binned_samples,lnprobs, calc_prob_volume=False,bins =None,bi
     return np.array(unique_samples), np.array(avaraged_lnprob_density), np.array(dthetas)
 
 
-def get_posterior(samples,lnprobs,bins,log=False, progress_bar=True, full_output=False):
+def get_posterior(samples,lnprobs,bins,log=False, progress_bar=True, full_output=False, prior=None):
     """
     Get the posterior distribution from the samples. The samples are of shape (n_samples, n_features).
     parameters:
@@ -418,103 +790,145 @@ def get_posterior(samples,lnprobs,bins,log=False, progress_bar=True, full_output
                                                                 progress_bar=progress_bar)
     
     #Multiply the avaraged log-probabilities by the volume of the bins to get the posterior.
-    #Because we use lnprobabilities, we can add the log of the volumes to the log-probabilities.
+    #Because we use lnproabilities, we can add the log of the volumes to the log-probabilities.
     if(np.isnan(lnprobs_density)).any():
         print("avaraged_lnprobs contains NaNs")
     if(np.isnan(volumes)).any():
         print("volumes contains NaNs")
     if np.any(volumes <= 0):
         print("volumes contains zeros or negative values")
-    evidence = calulate_evidence(lnprobs_density,volumes)
-    posterior_lnprobs =lnprobs_density+ np.log(volumes)-evidence
+
+    # if the prior is not None, we need to calculate the unnormalized posterior first:
+    if prior is not None:
+        # Evaluate the prior probability density at each sample
+        prior_lnprobs = []
+        iterator = tqdm(range(len(unique_samples)), desc="Calculating prior for posterior bins") if progress_bar else range(len(unique_samples))
+        for i in iterator:
+            sample = unique_samples[i]
+            # we need to calculate the probability density of the prior at the sample point
+            # Using the "get_probability_in_region" method allows us to account for different bin sizes between the prior and the posterior
+            prob = prior.get_probability_in_region(sample, dthetas[i], density=True, log_check=False)
+            prior_lnprobs.append(prob)
+        prior_lnprobs = np.array(prior_lnprobs)
+    else:
+        #we assume an uniformative prior, so we set the prior to 1
+        prior_lnprobs = np.zeros_like(lnprobs_density)
+
+    evidence = calulate_evidence(lnprobs_density,volumes=volumes, prior_lnprobs=prior_lnprobs)
+    
+
+    posterior_lnprobs =lnprobs_density+prior_lnprobs+ np.log(volumes)-evidence
     if np.isnan(lnprobs_density).any():
         print("final_lnprobs contains NaNs")
     if full_output:
-        return unique_samples, posterior_lnprobs,lnprobs_density,dthetas, evidence
+        return unique_samples, posterior_lnprobs,lnprobs_density,dthetas, evidence, prior_lnprobs
     return unique_samples, posterior_lnprobs
 
     
-def marginalized_posterior(unique_samples,lnprobs_density,features,dthetas, density =True):
+def marginalized_posterior(unique_samples, lnprobs_density, features, dthetas, density=True, prior_lnprobs=None):
     """
     Get the marginalized posterior distribution from the samples. The samples are of shape (n_samples, n_features).
     parameters:
     unique_samples: np.ndarray
-        The unique smaple values
+        The unique sample values
     lnprobs: np.ndarray
         The log-probabilities of the samples
     features: list
         The feature indices along which to marginalize the posterior
+    dthetas: np.ndarray
+        The differential elements for each parameter for each sample.
+    density: bool
+        Whether to return densities (True) or probabilities (False)
+    prior_lnprobs: np.ndarray or None
+        Optional. The log prior probabilities for each sample. If provided, will be marginalized in the same way as lnprobs.
     returns:
     marginalized_samples: np.ndarray
         The marginalized samples
     marginalized_lnprobs: np.ndarray
         The marginalized log-probabilities
+    marginalized_dthetas: np.ndarray
+        The marginalized dthetas
+    marginalized_prior_lnprobs: np.ndarray or None
+        The marginalized prior log-probabilities (if prior_lnprobs was provided)
     """
     from scipy.special import logsumexp
 
-    #if we are looking for probabilitoes and not densities, we need to multiply the probability density by the volume of the bins
+    #if we are looking for probabilities and not densities, we need to multiply the probability density by the volume of the bins
     if not density:
-        volumes = np.prod(dthetas,axis=1)
+        volumes = np.prod(dthetas, axis=1)
         lnprobs = lnprobs_density + np.log(volumes)
     else:
-        lnprobs = lnprobs_density 
+        lnprobs = lnprobs_density
+    if prior_lnprobs is not None:
+        prior_lnprobs = np.asarray(prior_lnprobs)
+        has_prior = True
+    else:
+        has_prior = False
 
-    #sort the feature indices in descending order to make sure that we marginalize the posterior in the correct order.
     features = sorted(features, reverse=True)
-    
-    #for every feature in features, we need to sum the probabilities of all the samples that have the same value for all the other features
-    #if we are working with densities, we need to multiply the probabilities by the dtheta (delta theta) along the marginalized feature
     for feature in features:
-        raw_unique_samples = defaultdict(lambda: [np.zeros(unique_samples.shape[1]), [],[]])
+        raw_unique_samples = defaultdict(lambda: [np.zeros(unique_samples.shape[1]), [], [], []])
         for i in range(unique_samples.shape[0]):
             key = tuple(np.delete(unique_samples[i, :], feature))
             raw_unique_samples[key][0] = np.delete(unique_samples[i, :], feature)
-            raw_unique_samples[key][1].append(lnprobs[i]+np.log(dthetas[i,feature]))
-            raw_unique_samples[key][2] = np.delete(dthetas[i,:], feature)
-
+            raw_unique_samples[key][1].append(lnprobs[i] + np.log(dthetas[i, feature]))
+            raw_unique_samples[key][2] = np.delete(dthetas[i, :], feature)
+            if has_prior:
+                raw_unique_samples[key][3].append(prior_lnprobs[i] + np.log(dthetas[i, feature]))
         raw_unique_samples = list(raw_unique_samples.values())
 
         avaraged_lnprobs = []
-        unique_samples = []
-        dthetas = []
+        marginalized_samples = []
+        marginalized_dthetas = []
+        marginalized_prior_lnprobs = [] if has_prior else None
         for i in range(len(raw_unique_samples)):
-            unique_samples.append(raw_unique_samples[i][0])
-            avaraged_lnprobs.append(logsumexp(np.array((raw_unique_samples[i][1]))))
-            dthetas.append(np.array(raw_unique_samples[i][2]))
-
-        unique_samples = np.squeeze(np.array(unique_samples))
+            marginalized_samples.append(raw_unique_samples[i][0])
+            avaraged_lnprobs.append(logsumexp(np.array(raw_unique_samples[i][1])))
+            marginalized_dthetas.append(np.array(raw_unique_samples[i][2]))
+            if has_prior:
+                marginalized_prior_lnprobs.append(logsumexp(np.array(raw_unique_samples[i][3])))
+        unique_samples = np.squeeze(np.array(marginalized_samples))
         lnprobs = np.squeeze(np.array(avaraged_lnprobs))
-        dthetas = np.array(dthetas)
+        dthetas = np.array(marginalized_dthetas)
+        if has_prior:
+            prior_lnprobs = np.squeeze(np.array(marginalized_prior_lnprobs))
     dthetas = np.squeeze(np.array(dthetas))
-
-
-
     sort_index = np.argsort(lnprobs)
     unique_samples = unique_samples[sort_index]
     lnprobs = lnprobs[sort_index]
     dthetas = dthetas[sort_index]
+    if has_prior:
+        prior_lnprobs = prior_lnprobs[sort_index]
+        return unique_samples, lnprobs, dthetas, prior_lnprobs
+    else:
+        return unique_samples, lnprobs, dthetas
 
 
-    return unique_samples, lnprobs , dthetas
-
-
-def calulate_evidence(lnprobs,volumes):
+def calulate_evidence(lnprobs, volumes=None, prior_lnprobs=None):
     """
-    Calculate the evidence from the samples. The samples are of shape (n_samples, n_features).
-    parameters:
+    Calculate the evidence from the samples.
+
+    Parameters:
     lnprobs: np.ndarray
-        The log-probabilities of the samples
-    volumes: np.ndarray
-        The volume of the bins associated with the avaraged log-probabilities
-    returns:
+        The log-probabilities of the samples.
+    volumes: np.ndarray, optional
+        The volume of the bins associated with the averaged log-probabilities.
+    prior_lnprobs: np.ndarray, optional
+        The log-prior probabilities (including log(bin_volume)) for each bin.
+
+    Returns:
     evidence: float
-        The evidence
+        The evidence (log-sum of probabilities).
     """
-    from scipy.special import logsumexp
-    evidence = logsumexp(lnprobs + np.log(volumes))
+    if prior_lnprobs is not None:
+        evidence = logsumexp(lnprobs + prior_lnprobs)+ np.log(volumes)
+    elif volumes is not None:
+        evidence = logsumexp(lnprobs + np.log(volumes))
+    else:
+        raise ValueError("'volumes' must be provided to calculate the evidence.")
     return evidence
 
-def plot_1d_posteriors(unique_samples,lnprobs_densities,dthetas,ax=None,colors=None,labels=None,truths=None,smooth_mode=False, scale ='log',show_ln_prob = True, stats = ['mean',"std","percentiles"],percentiles = [16, 50, 95],log=None,truth_label = "Best fit"):
+def plot_1d_posteriors(unique_samples,lnprobs_densities,dthetas,ax=None,colors=None,labels=None,truths=None,smooth_mode=False, scale ='log',show_ln_prob = True, stats = ['mean','std','percentiles'],percentiles = [16, 50, 95],log=None,truth_label = "Best fit", prior_lnprobs=0):
     """ 
     Parameters:
     unique_samples : np.ndarray
@@ -530,7 +944,7 @@ def plot_1d_posteriors(unique_samples,lnprobs_densities,dthetas,ax=None,colors=N
     labels : list, optional
         The labels of the posteriors. If None, default labels will be used.
     truths : list, optional
-        The true values of the posteriors. If provided, vertical lines will be drawn at these values.
+        The true values of the posteriors. If None, no true values will be plotted.
     scale : str, optional
         The scale of the x-axis. Can be 'log' or 'linear'. Default is 'log'.
     show_ln_prob : bool, optional
@@ -562,15 +976,17 @@ def plot_1d_posteriors(unique_samples,lnprobs_densities,dthetas,ax=None,colors=N
         
         if n_features == 1:
             marginalized_samples, marginalized_lnprobs, marginalized_dthetas = np.squeeze(unique_samples), np.squeeze(lnprobs_densities), np.squeeze(dthetas)
+            marginalized_prior_lnprobs = np.squeeze(prior_lnprobs) if isinstance(prior_lnprobs, np.ndarray) and prior_lnprobs.shape == marginalized_lnprobs.shape else 0
         else:
-            marginalized_samples, marginalized_lnprobs, marginalized_dthetas = marginalized_posterior(unique_samples, lnprobs_densities, [j for j in range(n_features) if j != i],dthetas, density = True)
-        # marginalized_samples = marginalized_samples
-        #sort the samples
-        sort_index = np.argsort(marginalized_samples)
-        marginalized_samples = marginalized_samples[sort_index]
-        marginalized_lnprobs = marginalized_lnprobs[sort_index]
-        marginalized_dthetas = marginalized_dthetas[sort_index]
-        stats_dict = getStats(marginalized_samples, marginalized_lnprobs, marginalized_dthetas, stats=stats,smooth_mode=smooth_mode, percentiles=percentiles)
+            # Marginalize both lnprobs and prior_lnprobs in one call
+            if isinstance(prior_lnprobs, np.ndarray) and prior_lnprobs.shape[0] == unique_samples.shape[0]:
+                marginalized_samples, marginalized_lnprobs, marginalized_dthetas, marginalized_prior_lnprobs = marginalized_posterior(
+                    unique_samples, lnprobs_densities, [j for j in range(n_features) if j != i], dthetas, density=True, prior_lnprobs=prior_lnprobs)
+            else:
+                marginalized_samples, marginalized_lnprobs, marginalized_dthetas = marginalized_posterior(
+                    unique_samples, lnprobs_densities, [j for j in range(n_features) if j != i], dthetas, density=True)
+                marginalized_prior_lnprobs = 0
+        stats_dict = getStats(marginalized_samples, marginalized_lnprobs, marginalized_dthetas, stats=stats, smooth_mode=smooth_mode, percentiles=percentiles, prior_lnprobs=marginalized_prior_lnprobs)
         if 'mean' in stats:
             mean_i = np.exp(stats_dict['mean']) if log[i] else stats_dict['mean']
             ax[i].axvline(mean_i, color="k", linestyle="--", label="Mean")
@@ -613,8 +1029,8 @@ def plot_1d_posteriors(unique_samples,lnprobs_densities,dthetas,ax=None,colors=N
             ax[i].set_xscale('log')
         ax[i].legend()
         
-def plot_2d_posteriors(unique_samples,lnprobs_densities,dthetas,features, ax=None,labels=None,truths=None, scale ='log',show_ln_prob = True, stats = ['mean',"std","percentiles"],percentiles = [16, 50, 95],log=None,plot_type = 'contourf', **kwargs):
-    """ 
+def plot_2d_posteriors(unique_samples,lnprobs_densities,dthetas,features, ax=None,labels=None,truths=None, scale ='log',show_ln_prob = True, stats = ['mean','std','percentiles', 'mode'],percentiles = [16, 50, 95],plot_type = 'contourf', prior_lnprobs=0, log=None, smooth_mode=False, **kwargs):
+    """
     Parameters:
     unique_samples : np.ndarray
         The unique sample values.
@@ -636,7 +1052,6 @@ def plot_2d_posteriors(unique_samples,lnprobs_densities,dthetas,features, ax=Non
         If True, the log-probabilities will be shown. If False, the probabilities will be exponentiated.
     stats : list, optional
         The statistics to calculate and dispaly. Can be 'mean', 'std', 'percentiles' or 'mode'
-
     Returns:
     None
     """
@@ -647,20 +1062,67 @@ def plot_2d_posteriors(unique_samples,lnprobs_densities,dthetas,features, ax=Non
     if ax is None:
         fig, ax = plt.subplots()
     
-    marginalized_samples, marginalized_lnprobs, marginalized_dthetas = marginalized_posterior(unique_samples, lnprobs_densities, [j for j in range(n_features) if not j in features],dthetas, density = True)
+    marginalized_samples, marginalized_lnprobs, marginalized_dthetas = marginalized_posterior(unique_samples, lnprobs_densities, [j for j in range(n_features) if j not in features], dthetas, density = True)
+    # Marginalize prior_lnprobs if it is an array of the correct shape
+    if isinstance(prior_lnprobs, np.ndarray) and prior_lnprobs.shape[0] == unique_samples.shape[0]:
+        marginalized_samples, marginalized_lnprobs, marginalized_dthetas, marginalized_prior_lnprobs = marginalized_posterior(
+            unique_samples, lnprobs_densities, [j for j in range(n_features) if j not in features], dthetas, density=True, prior_lnprobs=prior_lnprobs)
+    else:
+        marginalized_samples, marginalized_lnprobs, marginalized_dthetas = marginalized_posterior(
+            unique_samples, lnprobs_densities, [j for j in range(n_features) if j not in features], dthetas, density=True)
+        marginalized_prior_lnprobs = 0
+    stats_dict = getStats(marginalized_samples, marginalized_lnprobs, marginalized_dthetas, stats=stats, smooth_mode=smooth_mode, percentiles=percentiles, prior_lnprobs=marginalized_prior_lnprobs)
+
+    if 'mean' in stats:
+        mean_x = np.exp(stats_dict['mean'][0]) if log[features[0]] else stats_dict['mean'][0]
+        mean_y = np.exp(stats_dict['mean'][1]) if log[features[1]] else stats_dict['mean'][1]
+        ax.axvline(mean_x, color="k", linestyle="--", label="Mean")
+        ax.axhline(mean_y, color="k", linestyle="--")
+    if 'std' in stats:
+        std_x = np.exp(stats_dict['mean'][0]+stats_dict['std'][0]) if log[features[0]] else (stats_dict['mean'][0]+stats_dict['std'][0])
+        std_y = np.exp(stats_dict['mean'][1]+stats_dict['std'][1]) if log[features[1]] else (stats_dict['mean'][1]+stats_dict['std'][1])
+        ax.axvline(std_x, color="gray", linestyle=":", label="Std")
+        ax.axhline(std_y, color="gray", linestyle=":")
+        std_x = np.exp(stats_dict['mean'][0]-stats_dict['std'][0]) if log[features[0]] else (stats_dict['mean'][0]-stats_dict['std'][0])
+        std_y = np.exp(stats_dict['mean'][1]-stats_dict['std'][1]) if log[features[1]] else (stats_dict['mean'][1]-stats_dict['std'][1])
+        ax.axvline(std_x, color="gray", linestyle=":")
+        ax.axhline(std_y, color="gray", linestyle=":")
+    if 'percentiles' in stats:
+        last_low = np.exp(stats_dict['mode']) if log[features[0]] or log[features[1]] else stats_dict['mode']
+        last_high = np.exp(stats_dict['mode']) if log[features[0]] or log[features[1]] else stats_dict['mode']
+        alpha = 0.1*(len(percentiles))+0.1
+        for percentile in percentiles:
+            low = np.exp(stats_dict[f'percentile_{percentile}'][0]) if log[features[0]] or log[features[1]] else stats_dict[f'percentile_{percentile}'][0]
+            high = np.exp(stats_dict[f'percentile_{percentile}'][1]) if log[features[0]] or log[features[1]] else stats_dict[f'percentile_{percentile}'][1]
+            # if percentile == 95: ###DEBUG###
+            #     print(f"{label} low: {low}, high: {high}")
+            top = np.max(marginalized_lnprobs) if show_ln_prob else np.exp(np.max(marginalized_lnprobs))
+            bottom = np.min(marginalized_lnprobs) if show_ln_prob else np.exp(np.min(marginalized_lnprobs))
+            ax.fill_betweenx([bottom,top], low, last_low, color='C0', alpha=alpha, label=f"{percentile}th percentile")
+            ax.fill_betweenx([bottom,top], last_high, high, color='C0', alpha=alpha )
+            last_low = low
+            last_high = high
+            alpha -= 0.1
+
+    if 'mode' in stats:
+        mode_x = np.exp(stats_dict['mode'][0]) if log[features[0]] else stats_dict['mode'][0]
+        mode_y = np.exp(stats_dict['mode'][1]) if log[features[1]] else stats_dict['mode'][1]
+        ax.axvline(mode_x, color="k", linestyle="-.", label="Mode")
+        ax.axhline(mode_y, color="k", linestyle="-.")
+
+    if not show_ln_prob:
+        marginalized_lnprobs = np.exp(marginalized_lnprobs)
     if log[features[0]]:
         marginalized_samples[:,0] = np.exp(marginalized_samples[:,0])
     if log[features[1]]:
         marginalized_samples[:,1] = np.exp(marginalized_samples[:,1])
 
-    #Plot the 2D posterior on a mesh grid
     x = marginalized_samples[:,0]
     y = marginalized_samples[:,1]
     z = marginalized_lnprobs
     if not show_ln_prob:
         z = np.exp(z)
     X, Y = np.meshgrid(x, y)
-    # make the Z values a 2D grid. for eache x,y pair, the z value is the probability density
     Z = np.zeros(X.shape)
     if show_ln_prob:
         Z = Z+np.min(z)
@@ -694,8 +1156,80 @@ def plot_2d_posteriors(unique_samples,lnprobs_densities,dthetas,features, ax=Non
     ax.set_title("2D Posterior")
     return X, Y
 
+import matplotlib.pyplot as plt
+from mpl_toolkits.mplot3d import Axes3D
+import numpy as np
 
-def corner_plot(unique_samples,lnprobs_densities,dthetas,ax=None,colors=None,labels=None,truths=None, scale ='log',show_ln_prob = True, stats = ['mean',"std","percentiles"],percentiles = [16, 50, 95],log=None,plot_type = 'contourf',progress_bar=True, **kwargs):
+def plot_3d_posterior(unique_samples, lnprobs_density, dthetas, features, ax=None, labels=None, truths=None, scale='log', show_ln_prob=False, stats=None, percentiles=None, log=None, plot_type='scatter', **kwargs):
+    if ax is None:
+        fig = plt.figure(figsize=(12, 9))
+        ax = fig.add_subplot(111, projection='3d')
+    x = unique_samples[:, features[0]]
+    y = unique_samples[:, features[1]]
+    z = unique_samples[:, features[2]]
+    c = lnprobs_density if show_ln_prob else np.exp(lnprobs_density)
+    img = ax.scatter(x, y, z, c=c, cmap='viridis', **kwargs)
+    if labels is not None:
+        ax.set_xlabel(labels[features[0]])
+        ax.set_ylabel(labels[features[1]])
+        ax.set_zlabel(labels[features[2]])
+    else:
+        ax.set_xlabel(f'Feature {features[0]}')
+        ax.set_ylabel(f'Feature {features[1]}')
+        ax.set_zlabel(f'Feature {features[2]}')
+    if truths is not None:
+        ax.scatter(truths[features[0]], truths[features[1]], truths[features[2]], color='red', marker='x', s=100, label='Truth')
+    ax.set_title("3D Posterior")
+    #set the scale of the axes
+
+    plt.colorbar(img, ax=ax, shrink=0.5, aspect=5)
+    
+    return ax
+
+def plot_3d_posterior_interactive(unique_samples, lnprobs_density, features, labels=None, truths=None, show_ln_prob=False):
+    x = unique_samples[:, features[0]]
+    y = unique_samples[:, features[1]]
+    z = unique_samples[:, features[2]]
+    c = lnprobs_density if show_ln_prob else np.exp(lnprobs_density)
+
+    fig = go.Figure(data=[go.Scatter3d(
+        x=x, y=y, z=z,
+        mode='markers',
+        marker=dict(
+            size=3,
+            color=c,
+            colorscale='Viridis',
+            colorbar=dict(title='lnprob' if show_ln_prob else 'prob'),
+            opacity=0.8
+        )
+    )])
+
+    fig.update_layout(
+        scene=dict(
+            xaxis_title=r"$x_c/\eta$",
+            yaxis_title=r"$\beta/\eta$",
+            zaxis_title=r"$x_c^2/\epsilon$"
+            # xaxis_title=labels[features[0]] if labels else f'Feature {features[0]}',
+            # yaxis_title=labels[features[1]] if labels else f'Feature {features[1]}',
+            # zaxis_title=labels[features[2]] if labels else f'Feature {features[2]}',
+        ),
+        title="Interactive 3D Posterior"
+    )
+
+    if truths is not None:
+        fig.add_trace(go.Scatter3d(
+            x=[truths[features[0]]],
+            y=[truths[features[1]]],
+            z=[truths[features[2]]],
+            mode='markers',
+            marker=dict(size=8, color='red', symbol='x'),
+            name='Truth'
+        ))
+
+    fig.show()
+
+
+def corner_plot(unique_samples,lnprobs_densities,dthetas,ax=None,colors=None,labels=None,truths=None, scale ='log',show_ln_prob = True, stats = ['mean','std','percentiles', 'mode'],percentiles = [16, 50, 95],log=None,plot_type = 'contourf',progress_bar=True, prior_lnprobs=0, **kwargs):
     """ 
     Parameters:
     unique_samples : np.ndarray
@@ -711,7 +1245,7 @@ def corner_plot(unique_samples,lnprobs_densities,dthetas,ax=None,colors=None,lab
     labels : list, optional
         The labels of the posteriors. If None, default labels will be used.
     truths : list, optional
-        The true values of the posteriors. If provided, vertical lines will be drawn at these values.
+        The true values of the posteriors. If None, no true values will be plotted.
     scale : str, optional
         The scale of the x-axis. Can be 'log' or 'linear'. Default is 'log'.
     show_ln_prob : bool, optional
@@ -730,24 +1264,36 @@ def corner_plot(unique_samples,lnprobs_densities,dthetas,ax=None,colors=None,lab
         fig, ax = plt.subplots(n_features, n_features, figsize=(5 * n_features, 5 * n_features))
         fig.tight_layout(pad=3.0)
     diagonal_axes = [ax[i,i] for i in range(n_features)]
-    plot_1d_posteriors(unique_samples,lnprobs_densities,dthetas,ax=diagonal_axes,colors=colors,labels=labels,truths=truths, scale=scale, show_ln_prob=show_ln_prob, stats=stats, percentiles=percentiles, log=log)
-    
+    # Marginalize prior_lnprobs for 1D plots
+    if isinstance(prior_lnprobs, np.ndarray) and prior_lnprobs.shape[0] == unique_samples.shape[0]:
+        marginalized_prior_lnprobs_1d = [
+            marginalized_posterior(unique_samples, prior_lnprobs, [j for j in range(n_features) if j != i], dthetas, density=True)[1]
+            for i in range(n_features)
+        ]
+    else:
+        marginalized_prior_lnprobs_1d = [0] * n_features
+    for i, ax1d in enumerate(diagonal_axes):
+        plot_1d_posteriors(unique_samples, lnprobs_densities, dthetas, ax=[ax1d], colors=colors, labels=labels, truths=truths, scale=scale, show_ln_prob=show_ln_prob, stats=stats, percentiles=percentiles, log=log, prior_lnprobs=marginalized_prior_lnprobs_1d[i])
     if progress_bar:
         iterator = tqdm(range(n_features), desc="Creating corner plot")
     else:
         iterator = range(n_features)
-    
     for i in iterator:
         for j in range(i):
-            plot_2d_posteriors(unique_samples,lnprobs_densities,dthetas,features=[j,i], ax=ax[i,j], labels=labels, truths=truths, scale=scale, show_ln_prob=show_ln_prob, stats=stats, percentiles=percentiles, log=log,plot_type=plot_type, **kwargs)
-        for j in range(i+1,n_features):
+            # Marginalize prior_lnprobs for 2D plots
+            if isinstance(prior_lnprobs, np.ndarray) and prior_lnprobs.shape[0] == unique_samples.shape[0]:
+                marginalized_prior_lnprobs_2d = marginalized_posterior(unique_samples, prior_lnprobs, [k for k in range(n_features) if not k in [j,i]], dthetas, density=True)[1]
+            else:
+                marginalized_prior_lnprobs_2d = 0
+            plot_2d_posteriors(unique_samples, lnprobs_densities, dthetas, features=[j,i], ax=ax[i,j], labels=labels, truths=truths, scale=scale, show_ln_prob=show_ln_prob, stats=stats, percentiles=percentiles, log=log, plot_type=plot_type, prior_lnprobs=marginalized_prior_lnprobs_2d, **kwargs)
+        for j in range(i+1, n_features):
             ax[i,j].axis('off')
     return ax
 
 
 
 
-def getStats(samples, lnprobs, dthetas, stats=['mean','std'],percentiles = [16, 50, 84], center_percentiles=True, smooth_mode = True,debug=False):
+def getStats(samples, lnprobs, dthetas, stats=['mean','std'],percentiles = [16, 50, 84], center_percentiles=True, smooth_mode = True,debug=False, prior_lnprobs= 0):
     """
     Get the statistics of the samples. The samples are of shape (n_samples, n_features).
     Can be used to get the mean, standard deviation, median, percentiles and mode of the samples.
@@ -781,7 +1327,7 @@ def getStats(samples, lnprobs, dthetas, stats=['mean','std'],percentiles = [16, 
         volumes = dthetas
     else:
         volumes = np.prod(dthetas,axis=1)
-    lnprobs = lnprobs + np.log(volumes)
+    lnprobs = lnprobs + np.log(volumes) + prior_lnprobs
     stats_dict = {}
 
    
@@ -858,7 +1404,9 @@ def getStats(samples, lnprobs, dthetas, stats=['mean','std'],percentiles = [16, 
     return stats_dict
 
 
-import joint_posterior as jp
+from SRtools import joint_posterior as jp
+import numpy as np
+from scipy.special import logsumexp
 class JointPosterior(jp.JointPosterior):
     def __init__(self,samples_list,lnprobs_list,bins,log=False,progress_bar=True):
         return super().__init__(samples_list,lnprobs_list,bins,log,progress_bar)
@@ -998,13 +1546,22 @@ def default_transform5(sample, kappa):
     Fk2_Dk = beta ** 3 / (eta * epsilon)
     return [Dk, Fk2_Dk, beta_eta] + list(sample[3:])
 
-
+def default_transform6(sample,kappa):
+    xc_eta, beta_eta, xc2_epsilon, xc = sample[:4]
+    beta2_eta = beta_eta^2 * xc2_epsilon / xc_eta^2
+    eta = xc / xc_eta
+    k_beta = kappa/(beta_eta * eta)
+    k_epsilon = kappa/((xc ** 2)/xc2_epsilon )
+    return [beta2_eta, k_beta, k_epsilon] + list(sample[3:])
 
 def round_value(value, precision=2):
     if value == 0:
         return 0
     elif abs(value) < 1:
-        r = int(np.abs(np.log10(abs(value))))
+        r = int(np.Abs(np.log10(abs(value))))
         return round(value, r+precision)
     else:
         return round(value, precision)
+
+
+
