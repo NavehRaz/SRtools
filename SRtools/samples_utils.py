@@ -806,6 +806,90 @@ class Posterior:
             return mode, mode_index
         return mode
     
+    def get_samples_in_region(self, bin_sample, dtheta, raw=True, return_type='lnprobs'):
+        """
+        Get the samples and probabilities in the region defined by bin_sample ± dtheta/2.
+        
+        Parameters
+        ----------
+        bin_sample : numpy.ndarray
+            The center point of the region
+        dtheta : numpy.ndarray
+            The width of the region
+        raw : bool, optional
+            Whether to use raw samples or binned samples. Default is True.
+        return_type : str, optional
+            Type of probability to return. Options are:
+            - 'lnprobs': log probabilities (raw=True only)
+            - 'lnprobs_density': log probability density
+            - 'posterior': posterior probability
+            - 'priorlnprobs': prior log probabilities
+            - 'indices': indices of samples in region
+            Default is 'lnprobs'.
+            
+        Returns
+        -------
+        tuple
+            (samples, probabilities) or (samples, indices) if return_type='indices'
+        """
+        
+        # Ensure bin_sample and dtheta are broadcastable with the samples
+        bin_sample = np.asarray(bin_sample)
+        dtheta = np.asarray(dtheta)
+        if bin_sample.ndim == 1:
+            bin_sample = bin_sample.reshape(1, -1)
+        if dtheta.ndim == 0:
+            dtheta = np.full(bin_sample.shape, dtheta)
+        elif dtheta.ndim == 1:
+            dtheta = dtheta.reshape(1, -1)
+        
+        # Check if self.samples is None before calculating the mask
+        if raw and self.samples is None:
+            print("WARNING: self.samples is None, and raw is True.")
+            return None
+        
+        # Compute the mask using broadcasting
+        mask = np.all(np.abs((self.samples if raw else self.unique_samples) - bin_sample) <= dtheta / 2, axis=1)
+        
+        if raw:
+            if self.samples is None or self.lnprobs is None:
+                print("WARNING: self.samples or self.lnprobs are not set, and raw is True.")
+                return None
+            samples = self.samples[mask]
+            if return_type == 'indices':
+                return samples, np.where(mask)[0]
+            return samples, self.lnprobs[mask]
+        else:
+            samples = self.unique_samples[mask]
+            if return_type == 'indices':
+                return samples, np.where(mask)[0]
+            elif return_type == 'lnprobs_density':
+                return samples, self.lnprobs_density[mask] - self.evidence
+            elif return_type == 'posterior':
+                return samples, self.posterior[mask]
+            elif return_type == 'priorlnprobs':
+                if not hasattr(self, 'prior_lnprobs'):
+                    raise ValueError("Prior probabilities not available")
+                return samples, self.prior_lnprobs[mask]
+            else:
+                raise ValueError(f"Invalid return_type: {return_type}")
+            
+    def get_best_sample_in_mode(self):
+        """
+        Get the best sample in the mode of the posterior distribution.
+        """
+        mode, mode_index = self.get_mode(idx=True)
+        samples, lnprobs = self.get_samples_in_region(mode, self.dthetas[mode_index], raw=True, return_type='lnprobs')
+        return samples[np.argmax(lnprobs)]
+    
+    def best_raw_sample(self):
+        """
+        Get the best sample in the posterior distribution.
+        """
+        if self.samples is None or self.lnprobs is None:
+            print("WARNING: self.samples or self.lnprobs are not set.")
+            return None
+        return self.samples[np.argmax(self.lnprobs)]
 
     def plot_posterior3D(self, features, ax=None, labels=None, truths=None, scale ='log',show_ln_prob = True, stats = ['mean',"std","percentiles", "mode"],percentiles = [16, 50, 95],plot_type = 'contourf', **kwargs):
         """

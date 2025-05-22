@@ -1,2 +1,2 @@
-1. I need to validate the way a calculate probability volumes on dthetas for log/non_log spaces.
+1. PROBABLY SOLVED: I need to validate the way a calculate probability volumes on dthetas for log/non_log spaces.
 Currently I assume the volume is prod(dtheta) but thinking about it maybe its fine (if zero in one dimentions it all should be 0 so you need to multiply)
