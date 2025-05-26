@@ -115,7 +115,7 @@ class JointPosterior(su.Posterior):
   
         posterior_lnprobs =lnprobs_density+ np.log(volumes)-evidence + prior_lnprobs
         
-        self.bins = bins
+        self.bins = bins.copy()
         self.log = log
         self.progress_bar = progress_bar
         self.unique_samples = unique_samples
@@ -236,6 +236,7 @@ class JointPosterior(su.Posterior):
             max_liklihood = [transformed_samples_list[i][np.argmax(self.lnprobs_list[i])] for i in range(len(transformed_samples_list))]
             max_likelihood_overall_index = np.argmax([max(self.lnprobs_list[i]) for i in range(len(self.lnprobs_list))])
             max_liklihood = max_liklihood[max_likelihood_overall_index]
+            mode_overall = post.get_mode()
             for i in range(n_features):
                 #check if the label is already calculated
                 if label_set[i] in summery_dict.keys():
@@ -258,11 +259,14 @@ class JointPosterior(su.Posterior):
                 #round all values to 4 non 0 decimal points:
                 for key in stats_dict.keys():
                     #if the value is a list, round each element
-                    if isinstance(stats_dict[key],list) or isinstance(stats_dict[key],tuple):
-                        stats_dict[key] = [round_value(val,3) for val in stats_dict[key]]
+                    if isinstance(stats_dict[key],list):
+                        stats_dict[key] = [float(round_value(val,3)) for val in stats_dict[key]]
                     else:
-                        stats_dict[key] = round_value(stats_dict[key],3)
-                stats_dict['max_likelihood'] = round_value(max_liklihood[i],3)
+                        stats_dict[key] = float(round_value(stats_dict[key],3))
+                    if isinstance(stats_dict[key],np.ndarray):
+                        stats_dict[key] = stats_dict[key].tolist()
+                stats_dict['max_likelihood'] = float(round_value(max_liklihood[i],3))
+                stats_dict['mode_overall'] = float(round_value(mode_overall[i],3))
                 summery_dict[label_set[i]]=stats_dict
 
         if ds is not None:
@@ -514,13 +518,13 @@ def default_transform6(sample, kappa):
     eta = xc / xc_eta
     beta = beta_eta * eta
     epsilon = (xc ** 2)/xc2_epsilon 
-    return [beta**2/epsilon, kappa/beta, kappa/epsilon, xc]
+    return [beta**2/epsilon, kappa/beta, kappa/epsilon] + list(sample[3:])
 
 def round_value(value, precision=2):
     if value == 0:
         return 0
     elif abs(value) < 1:
         r = int(np.abs(np.log10(abs(value))))
-        return round(value, r+precision)
+        return float(round(value, r+precision))
     else:
-        return round(value, precision)
+        return float(round(value, precision))

@@ -744,7 +744,7 @@ def applyThreshold(thetas,lnprobs,ds,metric = 'survival',time_range = None):
     return thetas[lnprobs>threshold],lnprobs[lnprobs>threshold]
     
 
-def custom_corner(samples,lnprobs,labels = ['eta','beta','epsilon','xc','ext h'], truths = None, scale ='log', grid =True,figsize=(15,15),quantiles = [0.16,0.5,0.84]):
+def custom_corner(samples,lnprobs,labels = ['eta','beta','epsilon','xc','ext h'], truths = None, scale ='log', grid =True,figsize=(15,15),quantiles = [0.16,0.5,0.84], show_color_bar=True):
     """
     A custom corner plot for the samples.
     Plots the samples and colors them according to the log probabilities.
@@ -757,6 +757,7 @@ def custom_corner(samples,lnprobs,labels = ['eta','beta','epsilon','xc','ext h']
     - grid (bool): Whether to plot the grid.
     - figsize (tuple): The size of the figure.
     - quantiles (list): The quantiles to plot.
+    - show_color_bar (bool): Whether to show the color bar for the log probabilities.
     returns:
     - fig: The figure.
     - axes: The axes.
@@ -766,6 +767,8 @@ def custom_corner(samples,lnprobs,labels = ['eta','beta','epsilon','xc','ext h']
     fig, axes = plt.subplots(ndim, ndim, figsize=figsize)
     fig.subplots_adjust(hspace=0.15, wspace=0.15)
 
+    # Create scatter plot for color bar reference
+    scatter = None
     for i in range(ndim):
         for j in range(i+1):
             ax = axes[i, j]
@@ -780,7 +783,7 @@ def custom_corner(samples,lnprobs,labels = ['eta','beta','epsilon','xc','ext h']
                 ax.set_yticks([])
 
             else:
-                ax.scatter(samples[:, j], samples[:, i], c=lnprobs, cmap='viridis', s=1)
+                scatter = ax.scatter(samples[:, j], samples[:, i], c=lnprobs, cmap='viridis', s=1)
                 if truths is not None:
                     ax.axvline(truths[j], color="r")
                     ax.axhline(truths[i], color="r")
@@ -803,5 +806,10 @@ def custom_corner(samples,lnprobs,labels = ['eta','beta','epsilon','xc','ext h']
     for quantile in quantiles:
         for i in range(ndim):
             axes[i, i].axvline(np.percentile(samples[:, i], quantile * 100), color="k", linestyle="dashed")
+
+    # Add color bar if requested
+    if show_color_bar and scatter is not None:
+        cbar_ax = fig.add_axes([0.92, 0.15, 0.02, 0.7])
+        fig.colorbar(scatter, cax=cbar_ax, label='Log Probability')
 
     return fig, axes

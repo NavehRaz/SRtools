@@ -58,6 +58,9 @@ def getSrHetro(theta, n=25000,nsteps=6000,t_end=110, external_hazard = np.inf,ti
         epsilon_var =0
         xc_var =0
         kappa_var =0
+
+    if external_hazard is None or external_hazard == 'None':
+        external_hazard = np.inf
     
     sim = SR_Hetro(eta=eta,beta=beta,epsilon=epsilon,xc=xc,
                    eta_var=eta_var,beta_var=beta_var,kappa_var=kappa_var,epsilon_var=epsilon_var,xc_var=xc_var,

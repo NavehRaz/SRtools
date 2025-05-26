@@ -82,6 +82,7 @@ class Posterior:
         self.maxs = None
         self.ranges = None
         self.norm_unique_samples = None
+        self.prior_object = prior
 
         #if samples is none make empty posterrior
         if samples is None:
@@ -104,6 +105,7 @@ class Posterior:
             self.log = None
             self.logged_samples = None
             self.progress_bar = None
+            self.prior_object = None
             return
 
         self.config_params = config_params
@@ -139,7 +141,7 @@ class Posterior:
             self.prior = False
 
         self.unique_samples, self.posterior, self.lnprobs_density, self.dthetas, self.evidence, self.prior_lnprobs = self.get_posterior(
-            self.logged_samples, lnprobs, bins, log=False, progress_bar=progress_bar, full_output=True, prior=prior)
+            self.logged_samples, lnprobs, bins.copy(), log=False, progress_bar=progress_bar, full_output=True, prior=prior)
         self.df = None
 
         # Ensure unique_samples is sorted (if not already sorted)
@@ -425,14 +427,12 @@ class Posterior:
                 ax[i].set_xscale('log')
             ax[i].legend()
 
-    def plot_2d_posteriors(self, features, ax=None, labels=None, truths=None, scale='log', show_ln_prob=False, stats=['mean','std','percentiles', 'mode'], percentiles=[16, 50, 95], plot_type='contourf', prior_lnprobs=None, smooth_mode=False, **kwargs):
+    def plot_2d_posteriors(self, features, ax=None, labels=None, truths=None, scale='log', show_ln_prob=False, stats=['mean','std','percentiles', 'mode'], percentiles=[16, 50, 95], plot_type='contourf', prior_lnprobs=0, smooth_mode=False, **kwargs):
         """
         Plot 2D marginalized posteriors using the standalone plot_2d_posteriors function for consistency.
         """
-
-            
         import matplotlib.pyplot as plt
-        n_features =self. unique_samples.shape[1]
+        n_features = self.unique_samples.shape[1]
         log = self.log
         if self.log is None:
             log = [False] * n_features
@@ -490,10 +490,9 @@ class Posterior:
             ax.set_xscale('log')
             ax.set_yscale('log')
         ax.set_aspect('auto')
-        ax.set_title("2D Posterior")
         return X, Y
 
-    def corner_plot(self, ax=None, colors=None, labels=None, truths=None, scale ='log',show_ln_prob = False, stats = ['mean','std','percentiles', 'mode'],percentiles = [16, 50, 95],plot_type = 'contourf', prior_lnprobs=0,smooth_mode=False, **kwargs):
+    def corner_plot(self, ax=None, colors=None, labels=None, truths=None, scale ='log',show_ln_prob = False, stats = ['mean','std','percentiles', 'mode'],percentiles = [16, 50, 95],plot_type = 'contourf', prior_lnprobs=0,smooth_mode=False, show_colorbar=False, **kwargs):
             
             n_features = self.unique_samples.shape[1]
             
@@ -515,6 +514,33 @@ class Posterior:
                     _=self.plot_2d_posteriors(features=[j,i], ax=ax[i,j], labels=labels, truths=truths, scale=scale, show_ln_prob=show_ln_prob, stats=stats, percentiles=percentiles, plot_type=plot_type, **kwargs)
                 for j in range(i+1, n_features):
                     ax[i,j].axis('off')
+            
+            # Add colorbar if requested
+            if show_colorbar and plot_type in ['contourf', 'pcolormesh']:
+                # Get the last 2D plot to use for colorbar
+                last_plot = ax[1,0].collections[0] if plot_type == 'contourf' else ax[1,0].collections[0]
+                cbar_ax = ax[0,0].figure.add_axes([0.92, 0.15, 0.02, 0.7])
+                cbar = plt.colorbar(last_plot, cax=cbar_ax)
+                cbar.set_label('Probability Density' if not show_ln_prob else 'Log Probability Density', fontsize=14)
+
+            # Only show labels on outer panels and make them bigger
+            for i in range(n_features):
+                for j in range(n_features):
+                    if i < n_features-1:  # Not bottom row
+                        ax[i,j].set_xlabel('')
+                    if j > 0:  # Not leftmost column
+                        ax[i,j].set_ylabel('')
+                    if i == n_features-1 and labels is not None:  # Bottom row
+                        ax[i,j].set_xlabel(labels[j], fontsize=14)
+                    if j == 0 and labels is not None:  # Leftmost column
+                        ax[i,j].set_ylabel(labels[i], fontsize=14)
+                    # Make tick labels bigger
+                    ax[i,j].tick_params(axis='both', which='major', labelsize=12)
+            
+            # Add main title
+            if labels is not None:
+                ax[0,0].figure.suptitle('2D Marginalized Posterior', fontsize=20, y=1.02)
+            
             return ax
 
 
@@ -586,23 +612,26 @@ class Posterior:
         
 
         if rescale is not None:
-            self.rescale(rescale)
+            resecaled_posterior = self.rescale(rescale)
+        else:
+            resecaled_posterior = self
             
-        
+        bins = resecaled_posterior.bins if isinstance(resecaled_posterior.bins, int) else resecaled_posterior.bins.copy()
         percentiles = [16, 50, 95]
         stats=['mean', 'std', 'mode', 'percentiles']
         summery_dict = {}
         for transform, label_set in zip(transforms, labels):
             trans = lambda x: transform(x,kappa)
-            transformed_samples = np.apply_along_axis(trans, 1, self.samples)
-            post = Posterior(transformed_samples.copy(), self.lnprobs.copy(), self.bins.copy(), log=self.log, progress_bar=self.progress_bar, config_params=self.config_params, help_text=self.help_text, prior=self.prior, sorting=self.sorting)
+            transformed_samples = np.apply_along_axis(trans, 1, resecaled_posterior.samples)
+            post = Posterior(transformed_samples.copy(), resecaled_posterior.lnprobs.copy(), bins=bins, log=resecaled_posterior.log, progress_bar=resecaled_posterior.progress_bar, config_params=resecaled_posterior.config_params, help_text=resecaled_posterior.help_text, prior=resecaled_posterior.prior_object)
             max_liklihood = transformed_samples[np.argmax(self.lnprobs)]
+            mode_overall = post.get_best_sample_in_mode()
             for i in range(n_features):
                 #check if the label is already calculated
                 if label_set[i] in summery_dict.keys():
                     continue
                 
-                marginalized_post = self.marginalize_posterior(
+                marginalized_post = post.marginalize_posterior(
                     [j for j in range(n_features) if j !=i], density=True)
                 marginalized_samples = marginalized_post.unique_samples
                 marginalized_lnprobs = marginalized_post.lnprobs_density- marginalized_post.evidence
@@ -621,10 +650,13 @@ class Posterior:
                 for key in stats_dict.keys():
                     #if the value is a list, round each element
                     if isinstance(stats_dict[key],list):
-                        stats_dict[key] = [round_value(val,3) for val in stats_dict[key]]
+                        stats_dict[key] = [float(round_value(val,3)) for val in stats_dict[key]]
                     else:
-                        stats_dict[key] = round_value(stats_dict[key],3)
-                stats_dict['max_likelihood'] = round_value(max_liklihood[i],3)
+                        stats_dict[key] = float(round_value(stats_dict[key],3))
+                    if isinstance(stats_dict[key],np.ndarray):
+                        stats_dict[key] = stats_dict[key].tolist()
+                stats_dict['max_likelihood'] = float(round_value(max_liklihood[i],3))
+                stats_dict['mode_overall'] = float(round_value(mode_overall[i],3))
                 summery_dict[label_set[i]]=stats_dict
 
         if ds is not None:
@@ -661,8 +693,13 @@ class Posterior:
         """
         new_samples  = [self.samples[:,i]*rescale[i] for i in range(self.samples.shape[1])]
         new_samples = np.array(new_samples).T
-        self.__init__(new_samples, self.lnprobs, self.bins, log=self.log, progress_bar=self.progress_bar)
-        return self
+        if self.prior_object is not None:
+            scaled_prior = self.prior_object.rescale(rescale)
+        else:
+            scaled_prior = None
+        new_posterior = Posterior(new_samples, self.lnprobs, self.bins, log=self.log, progress_bar=self.progress_bar, prior=scaled_prior, config_params=self.config_params, help_text=self.help_text)
+        return new_posterior
+    
     
     
     def get_sample_probability(self, sample, density = False):
@@ -795,7 +832,7 @@ class Posterior:
             The mode of the posterior distribution.
         """
         mode_index = np.argmax(self.posterior)
-        mode = self.unique_samples[mode_index]
+        mode = self.unique_samples[mode_index].copy()
         # Exponentiate only the indexes where self.log is True
         if hasattr(self, "log") and isinstance(self.log, (list, np.ndarray)):
             mode = np.array([
@@ -848,9 +885,11 @@ class Posterior:
             print("WARNING: self.samples is None, and raw is True.")
             return None
         
+        if raw  and hasattr(self, "log") and isinstance(self.log, (list, np.ndarray)):
+            samples = np.where(self.log, np.log(self.samples), self.samples)
+
         # Compute the mask using broadcasting
-        mask = np.all(np.abs((self.samples if raw else self.unique_samples) - bin_sample) <= dtheta / 2, axis=1)
-        
+        mask = np.all(np.abs((samples if raw else self.unique_samples) - bin_sample) <= dtheta / 2, axis=1)
         if raw:
             if self.samples is None or self.lnprobs is None:
                 print("WARNING: self.samples or self.lnprobs are not set, and raw is True.")
@@ -879,6 +918,8 @@ class Posterior:
         Get the best sample in the mode of the posterior distribution.
         """
         mode, mode_index = self.get_mode(idx=True)
+        if hasattr(self, "log") and isinstance(self.log, (list, np.ndarray)):
+            mode = np.where(self.log, np.log(mode), mode)
         samples, lnprobs = self.get_samples_in_region(mode, self.dthetas[mode_index], raw=True, return_type='lnprobs')
         return samples[np.argmax(lnprobs)]
     
@@ -1159,9 +1200,15 @@ class Posterior:
         """
         import numpy as np
         import pandas as pd
+
+        if self.prior:
+            import warnings
+            warnings.warn("Saving with prior=True is deprecated and will be removed in a future version. Please save the prior separately if needed.", DeprecationWarning)
+        
         # Save metadata to a CSV file
         data = {
             "log": [self.log] * self.unique_samples.shape[0],
+            "bins": [self.bins] * self.unique_samples.shape[0],  # Add bins information
             "unique_samples": self.unique_samples.tolist() if self.unique_samples is not None else None,
             "lnprobs_density": self.lnprobs_density.tolist() if self.lnprobs_density is not None else None,
             "posterior": self.posterior.tolist() if self.posterior is not None else None,
@@ -1231,6 +1278,7 @@ class Posterior:
         df = pd.read_csv(filepath)
         posterior_data = {
             "log": ast.literal_eval(df["log"].iloc[0]) if "log" in df.columns else None,
+            "bins": ast.literal_eval(df["bins"].iloc[0]) if "bins" in df.columns else None,  # Add bins information
             "unique_samples": np.array([ast.literal_eval(item) for item in df["unique_samples"].dropna()]),
             "lnprobs_density": np.array([item for item in df["lnprobs_density"].dropna()]),
             "posterior": np.array([item for item in df["posterior"].dropna()]),
@@ -1268,6 +1316,7 @@ class Posterior:
         loaded_posterior.dthetas = posterior_data["dthetas"]
         loaded_posterior.evidence = posterior_data["evidence"]
         loaded_posterior.log = posterior_data["log"]
+        loaded_posterior.bins = posterior_data["bins"]  # Add bins information
         loaded_posterior.samples = samples
         loaded_posterior.lnprobs = lnprobs
         loaded_posterior.config_params = posterior_data["config_params"]
@@ -1345,7 +1394,10 @@ def bin_index(samples, bins, index,log =False, return_bins=False):
     """
     if isinstance(bins, int):
         if log:
-            bins = np.logspace(np.log10(samples[:, index].min()*0.999), np.log10(samples[:, index].max()*1.001), bins + 1)
+            # Use natural logarithm for binning
+            min_val = np.log(samples[:, index].min()*0.999)
+            max_val = np.log(samples[:, index].max()*1.001)
+            bins = np.exp(np.linspace(min_val, max_val, bins + 1))
         else:
             if samples[:, index].min()<0:
                 bottom = samples[:, index].min()*1.001
@@ -2166,7 +2218,7 @@ def default_transform5(sample, kappa):
 
 def default_transform6(sample,kappa):
     xc_eta, beta_eta, xc2_epsilon, xc = sample[:4]
-    beta2_eta = beta_eta^2 * xc2_epsilon / xc_eta^2
+    beta2_eta = beta_eta**2 * xc2_epsilon / xc_eta**2
     eta = xc / xc_eta
     k_beta = kappa/(beta_eta * eta)
     k_epsilon = kappa/((xc ** 2)/xc2_epsilon )
@@ -2176,10 +2228,10 @@ def round_value(value, precision=2):
     if value == 0:
         return 0
     elif abs(value) < 1:
-        r = int(np.Abs(np.log10(abs(value))))
-        return round(value, r+precision)
+        r = int(np.abs(np.log10(abs(value))))
+        return float(round(value, r+precision))
     else:
-        return round(value, precision)
+        return float(round(value, precision))
 
 
 

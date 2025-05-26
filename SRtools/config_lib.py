@@ -57,7 +57,7 @@ def config_to_dict(config, mcmc_convert=True, custom_keys=None):
             'variations': 'astliteral',
             'prior': 'astliteral',
             'transform': 'bool',
-            'external_hazard': 'str',
+            'external_hazard': 'astliteral',
             'data_dt': 'float',
             'ndims': 'int',
             'hetro': 'bool'

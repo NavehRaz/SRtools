@@ -39,3 +39,32 @@ def gompertz_makeham_hazard(t, intercept=1, slope=1, makeham=0, npoints=100):
     if isinstance(t, (list, tuple)) and len(t) == 2:
         t = np.linspace(t[0], t[1], npoints)
     return intercept*np.exp(slope*(t)) + makeham
+
+# Function to append or create CSV
+def append_or_create_csv(data, filepath, doubles=False, override=False):
+    import os
+    import pandas as pd
+    if os.path.exists(filepath):
+        # Read existing data
+        existing_data = pd.read_csv(filepath, index_col=0)
+        
+        # Check for duplicate columns
+        duplicate_cols = set(existing_data.columns) & set(data.columns)
+        
+        if duplicate_cols and not doubles and not override:
+            import warnings
+            warnings.warn(f"Columns {duplicate_cols} already exist and neither doubles nor override is allowed - skipping these columns")
+            # Skip duplicate columns by only keeping non-duplicate columns from new data
+            data = data.drop(columns=duplicate_cols)
+            
+        if duplicate_cols and not doubles and override:
+            # Remove duplicate columns from existing data
+            existing_data = existing_data.drop(columns=duplicate_cols)
+            
+        # Combine with new data
+        combined_data = pd.concat([existing_data, data], axis=1)
+        # Save combined data
+        combined_data.to_csv(filepath)
+    else:
+        # Create new file
+        data.to_csv(filepath)
