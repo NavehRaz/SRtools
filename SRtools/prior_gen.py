@@ -27,7 +27,7 @@ class PriorGen:
         return self.values[indices]
     
     @staticmethod
-    def prior_from_posterior_csv(csv_path):
+    def prior_from_posterior_csv(csv_path, transform=True):
         """
         This function is used to generate a prior from a posterior csv file.
         The csv file should have columns unique_samples and posterior.
@@ -36,7 +36,8 @@ class PriorGen:
         values = df['unique_samples'].values
         #convert to numpy array with ast.literal_eval
         values = np.exp(np.array([ast.literal_eval(val) for val in values]))
-        values =  np.array([sr_mcmc.inv_transform(value) for value in values])
+        if not transform:
+            values =  np.array([sr_mcmc.inv_transform(value) for value in values])
 
         lnprobs = df['posterior'].values
         return PriorGen(values, lnprobs)
@@ -85,8 +86,9 @@ class PriorGenExtended(PriorGen):
         theta_extended[:, :theta.shape[1]] = theta
         
         # Add additional parameters for each sample
-        for i in range(n_samples):
-            theta_extended[i, theta.shape[1]:] = sr_mcmc.draw_param(self.bins, self.draw_params_in_log_space)
+        if self.ndims > 0:
+            for i in range(n_samples):
+                theta_extended[i, theta.shape[1]:] = sr_mcmc.draw_param(self.bins, self.draw_params_in_log_space)
             
         # Return single sample as 1D array if n_samples=1
         if n_samples == 1:
@@ -107,7 +109,7 @@ class PriorGenExtended(PriorGen):
 
 
     @staticmethod
-    def prior_from_posterior_csv_extended(csv_path, seed, variations, ndims, draw_params_in_log_space = True):
+    def prior_from_posterior_csv_extended(csv_path, seed, variations, ndims,ndims_from_csv =4, transform=True, draw_params_in_log_space = True):
         """
         This function is used to generate a prior from a posterior csv file.
         The csv file should have columns unique_samples and posterior.
@@ -116,7 +118,10 @@ class PriorGenExtended(PriorGen):
         values = df['unique_samples'].values
         #convert to numpy array with ast.literal_eval
         values = np.exp(np.array([ast.literal_eval(val) for val in values]))
-        values =  np.array([sr_mcmc.inv_transform(value) for value in values])
+        if not transform:
+            values =  np.array([sr_mcmc.inv_transform(value) for value in values])
+        if ndims_from_csv:
+            values = values[:,:ndims_from_csv]
         
         lnprobs = df['posterior'].values
         return PriorGenExtended(values, lnprobs, seed, variations, ndims, draw_params_in_log_space)
