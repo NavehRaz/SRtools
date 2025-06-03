@@ -34,7 +34,7 @@ def config_to_dict(config, mcmc_convert=True, custom_keys=None):
         converters = {
             'int': int,
             'float': float,
-            'bool': bool,
+            'bool': ast.literal_eval,
             'astliteral': ast.literal_eval,
             'str': str
         }
@@ -56,11 +56,11 @@ def config_to_dict(config, mcmc_convert=True, custom_keys=None):
             'seed_file': 'str',
             'variations': 'astliteral',
             'prior': 'astliteral',
-            'transform': 'bool',
+            'transform': 'astliteral',
             'external_hazard': 'astliteral',
             'data_dt': 'float',
             'ndims': 'int',
-            'hetro': 'bool'
+            'hetro': 'astliteral'
         }
 
         # Merge predefined keys with custom keys if provided

@@ -233,7 +233,7 @@ def get_bins_from_seed(seed, ndims=4, variations=[0.7, 1.3]):
    
 
 def getSampler(nwalkers, num_mcmc_steps, dataSet ,seed =None, npeople=10000, nsteps=5000, t_end=None, ndim = 4,
-                bins =None, variations = [0.7, 1.3], draw_params_in_log_space =True,
+                bins =None, variations = [0.7, 1.3], draw_params_in_log_space =True, prior_gen = None,
                 back_end_file= None, metric = 'baysian', time_range=None, time_step_multiplier = 1, prior = None, 
                 restartFromBackEnd = False, progress = False, transformed =False, dt=1, set_params=None ,model_func =model, **kwargs):
     """
@@ -286,11 +286,15 @@ def getSampler(nwalkers, num_mcmc_steps, dataSet ,seed =None, npeople=10000, nst
             elif len(p) >2:
                 raise ValueError("The prior should be a scalar or a list of ndim pairs [[eta_min,eta_max],[beta_min,beta_max]...].")
 
-
+    if prior_gen is not None:
+        prior = prior_gen.getBounds()
 
     args = [ npeople, nsteps, t_end, dataSet, metric, time_range, time_step_multiplier, prior, dt, set_params,model_func,kwargs]
     # Set the initial positions of the walkers
-    pos = [draw_param(bins=bins,log_sapce=draw_params_in_log_space) for i in range(nwalkers)]
+    if prior_gen is None:
+        pos = [draw_param(bins=bins,log_sapce=draw_params_in_log_space) for i in range(nwalkers)]
+    else:
+        pos = prior_gen.sample(n_samples=nwalkers)
     
     
     if transformed:
@@ -426,7 +430,7 @@ def loadSamples(back_end_file,flat = True, thin = 1, discard = 0):
     return samples,lnprobs
 
 
-def loadSamplesFromDir(dirs,best =True,flat = True, n_per_file = 800, thin = 1, discard = 0):
+def loadSamplesFromDir(dirs,best =True,flat = True, n_per_file = 800, thin = 1, discard = 0, debug = False):
     """
     Load the samples from the directory/s. Loads the samples from all the h5 files in the directory.
     And returns a concatenated array of the samples and the log probabilities.
@@ -443,7 +447,11 @@ def loadSamplesFromDir(dirs,best =True,flat = True, n_per_file = 800, thin = 1, 
                     samples_,lnprobs_ = loadSamples(os.path.join(dir,file),flat = flat)
                 except:
                     print("Error loading file: ",file)
-                    continue
+                    if debug:
+                        import traceback
+                        print("Error details:")
+                        traceback.print_exc()
+                        continue
                 # If we want the best thetas, we only want the 100 thetas with the highest log probability.
                 if best:
                     idx = np.argsort(lnprobs_)[-n_per_file:]

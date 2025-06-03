@@ -595,7 +595,7 @@ class Posterior:
                           ["eta*xc/epsilon","Fx=beta^2/eta*xc","Dx =beta*epsilon/eta*xc^2","xc"],
                           ["Pk=beta*k/epsilon","Fk=beta^2/eta*k","beta/eta","xc"],
                           ["Dk =beta*epsilon/eta*k^2","Fk^2/Dk=beta^3/eta*epsilon","beta/eta","xc"],
-                          ["beta^2/epsilon","k/beta","k/epsilon","xc"]]
+                          ["epsilon/beta^2","k/beta","k^2/epsilon","xc"]]
             if n_features > 4:
                 extra_labels = ['ExtH']
                 extra_labels += [f'lambda{i}' for i in range(n_features-4)]
@@ -2218,11 +2218,11 @@ def default_transform5(sample, kappa):
 
 def default_transform6(sample,kappa):
     xc_eta, beta_eta, xc2_epsilon, xc = sample[:4]
-    beta2_eta = beta_eta**2 * xc2_epsilon / xc_eta**2
+    epsilon_beta2 = xc_eta**2/(beta_eta**2 * xc2_epsilon)
     eta = xc / xc_eta
     k_beta = kappa/(beta_eta * eta)
-    k_epsilon = kappa/((xc ** 2)/xc2_epsilon )
-    return [beta2_eta, k_beta, k_epsilon] + list(sample[3:])
+    k2_epsilon = kappa**2/((xc ** 2)/xc2_epsilon )
+    return [epsilon_beta2, k_beta, k2_epsilon] + list(sample[3:])
 
 def round_value(value, precision=2):
     if value == 0:
