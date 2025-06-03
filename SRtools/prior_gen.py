@@ -13,7 +13,15 @@ class PriorGen:
         self.values = values
         self.lnprobs = lnprobs
 
-    def sample(self, n_samples=1):
+    def sample(self, n_samples=1, temperature=1.0):
+        """
+        Sample from the prior distribution with optional temperature-based noise.
+        
+        Args:
+            n_samples (int): Number of samples to generate
+            temperature (float): Controls the amount of noise added to samples. 
+                               Higher temperature = more noise. Default is 1.0 (no noise).
+        """
         # Convert probabilities to 1D array
         probs = np.exp(self.lnprobs)
         probs = probs / np.sum(probs)  # Normalize probabilities
@@ -21,10 +29,22 @@ class PriorGen:
         # Sample indices
         indices = np.random.choice(len(self.values), size=n_samples, p=probs)
         
+        # Get base samples
+        samples = self.values[indices]
+        
+        # Add temperature-based noise if temperature > 0
+        if temperature > 0:
+            # Calculate standard deviation for each dimension
+            # Calculate standard deviations in log space
+            stds = np.std(np.log(self.values), axis=0)
+            # Add noise in log space and exponentiate back
+            noise = np.random.normal(0, temperature * stds, size=samples.shape)
+            samples = np.exp(np.log(samples) + noise)
+        
         # Return the corresponding values
         if n_samples == 1:
-            return self.values[indices]
-        return self.values[indices]
+            return samples[0]
+        return samples
     
     @staticmethod
     def prior_from_posterior_csv(csv_path, transform=True):
@@ -69,13 +89,17 @@ class PriorGenExtended(PriorGen):
         super().__init__(values, lnprobs)
 
 
-    def sample(self, n_samples=1):
+    def sample(self, n_samples=1, temperature=1.0):
         """
-        This function is used to draw parameters from the prior distribution. The first part of the thetas vector is drawn from the prior distribution,
-        the rest of the thetas vector is drawn from the bins.
+        Sample from the extended prior distribution with optional temperature-based noise.
+        
+        Args:
+            n_samples (int): Number of samples to generate
+            temperature (float): Controls the amount of noise added to samples. 
+                               Higher temperature = more noise. Default is 1.0 (no noise).
         """
         # Get base theta values from parent class
-        theta = super().sample(n_samples)
+        theta = super().sample(n_samples, temperature)
         
         # Handle single sample case
         if n_samples == 1:
