@@ -233,7 +233,7 @@ def get_bins_from_seed(seed, ndims=4, variations=[0.7, 1.3]):
    
 
 def getSampler(nwalkers, num_mcmc_steps, dataSet ,seed =None, npeople=10000, nsteps=5000, t_end=None, ndim = 4,
-                bins =None, variations = [0.7, 1.3], draw_params_in_log_space =True, prior_gen = None,
+                bins =None, variations = [0.7, 1.3], draw_params_in_log_space =True, prior_generator = None,
                 back_end_file= None, metric = 'baysian', time_range=None, time_step_multiplier = 1, prior = None, 
                 restartFromBackEnd = False, progress = False, transformed =False, dt=1, set_params=None ,model_func =model, **kwargs):
     """
@@ -244,8 +244,10 @@ def getSampler(nwalkers, num_mcmc_steps, dataSet ,seed =None, npeople=10000, nst
     beta_bins = kwargs.get('beta_bins', None)
     epsilon_bins = kwargs.get('epsilon_bins', None)
     xc_bins = kwargs.get('xc_bins', None)
-
-    if bins is None and all(bin is not None for bin in [eta_bins, beta_bins, epsilon_bins, xc_bins]):
+    
+    if prior_generator is not None:
+        pass
+    elif bins is None and all(bin is not None for bin in [eta_bins, beta_bins, epsilon_bins, xc_bins]):
         bins = [eta_bins, beta_bins, epsilon_bins, xc_bins]
     elif bins is None and any(bin is not None for bin in [eta_bins, beta_bins, epsilon_bins, xc_bins]):
         raise ValueError("Either all bins should be None or all of them specified.")
@@ -254,16 +256,17 @@ def getSampler(nwalkers, num_mcmc_steps, dataSet ,seed =None, npeople=10000, nst
     #CHANGE THIS AFTER YOU SORT VARIABLE LENGTH THETA
     if set_params is None and ndim == 4:
         set_params = {'external_hazard': dataSet.external_hazard}
+        
+    if prior_generator is None:
+        #check if only some of the bins are specified and raise an exception if so.
+        if bins is not None and len(bins) != ndim:
+            raise ValueError("Either all bins should be specified or None of them.")
 
-    #check if only some of the bins are specified and raise an exception if so.
-    if bins is not None and len(bins) != ndim:
-        raise ValueError("Either all bins should be specified or None of them.")
-
-    if bins is None and seed is None:
-        raise ValueError("Either the seed or the bins should be specified.")
-    
-    if bins is None:
-        bins = get_bins_from_seed(seed, variations = variations)
+        if bins is None and seed is None:
+            raise ValueError("Either the seed or the bins should be specified.")
+        
+        if bins is None:
+            bins = get_bins_from_seed(seed, variations = variations)
 
     if t_end is None:
         t_end = dataSet.t_end
@@ -272,7 +275,12 @@ def getSampler(nwalkers, num_mcmc_steps, dataSet ,seed =None, npeople=10000, nst
     #  If the prior is a scalar a default prior is generated using it, otherwise 10 is used. 
     if prior is None:
         prior = 10
-    if  type(prior) is float or type(prior) is int:
+    if prior_generator is not None:
+        if type(prior) is float or type(prior) is int:
+            prior = prior_generator.getBounds(expansion_factor=prior)
+        else:
+            prior = prior_generator.getBounds()
+    elif  type(prior) is float or type(prior) is int:
         v= prior
         prior = [[np.min(bins[i])/v,np.max(bins[i])*v] for i in range(ndim)]
     elif len(prior) != ndim:
@@ -286,15 +294,14 @@ def getSampler(nwalkers, num_mcmc_steps, dataSet ,seed =None, npeople=10000, nst
             elif len(p) >2:
                 raise ValueError("The prior should be a scalar or a list of ndim pairs [[eta_min,eta_max],[beta_min,beta_max]...].")
 
-    if prior_gen is not None:
-        prior = prior_gen.getBounds()
+    
 
     args = [ npeople, nsteps, t_end, dataSet, metric, time_range, time_step_multiplier, prior, dt, set_params,model_func,kwargs]
     # Set the initial positions of the walkers
-    if prior_gen is None:
+    if prior_generator is None:
         pos = [draw_param(bins=bins,log_sapce=draw_params_in_log_space) for i in range(nwalkers)]
     else:
-        pos = prior_gen.sample(n_samples=nwalkers)
+        pos = prior_generator.sample(n_samples=nwalkers)
     
     
     if transformed:
