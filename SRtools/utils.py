@@ -68,3 +68,55 @@ def append_or_create_csv(data, filepath, doubles=False, override=False):
     else:
         # Create new file
         data.to_csv(filepath)
+
+def rescaleTheta(theta, s=None, from_unit=None, to_unit=None):
+    """
+    Rescales theta parameters: theta[0]*s^2, theta[1]*s, theta[2]*s.
+    
+    Parameters:
+    -----------
+    theta : array-like
+        Array of theta parameters to rescale
+    s : float, optional
+        Scaling factor (to_unit/from_unit). If None, calculated from from_unit and to_unit
+    from_unit : str, optional
+        Original unit. Required if s is None. Options: 'days', 'hours', 'generations', 'weeks', 'years'
+    to_unit : str, optional
+        Target unit. Required if s is None. Options: 'days', 'hours', 'generations', 'weeks', 'years'
+    
+    Returns:
+    --------
+    numpy.ndarray
+        Rescaled theta parameters
+    """
+    import numpy as np
+    
+    # Unit conversion factors (relative to days)
+    unit_factors = {
+        'days': 1,
+        'hours': 1/24,
+        'generations': 3/24,
+        'weeks': 7,
+        'years': 365
+    }
+    
+    # Calculate scaling factor if not provided
+    if s is None:
+        if from_unit is None or to_unit is None:
+            raise ValueError("If s is None, both from_unit and to_unit must be specified")
+        
+        if from_unit not in unit_factors or to_unit not in unit_factors:
+            raise ValueError(f"Invalid unit. Must be one of: {list(unit_factors.keys())}")
+        
+        s = unit_factors[to_unit] / unit_factors[from_unit]
+    
+    # Convert theta to numpy array if it isn't already
+    theta = np.array(theta)
+    
+    # Apply rescaling: theta[0]*s^2, theta[1]*s, theta[2]*s
+    rescaled_theta = theta.copy()
+    rescaled_theta[0] *= s**2
+    rescaled_theta[1] *= s
+    rescaled_theta[2] *= s
+    
+    return rescaled_theta

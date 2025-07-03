@@ -3,3 +3,5 @@ Currently I assume the volume is prod(dtheta) but thinking about it maybe its fi
 
 
 2. saving with prior should be deprecated. should solve how to save if already applied prior
+
+3. I need to test the effect of using a KDE on the deathtimes distribution. It might distort it and effect accuracy by 10-30%
