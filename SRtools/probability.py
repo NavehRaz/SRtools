@@ -67,7 +67,7 @@ def filter(data, sigma):
     return filtered
 
 class Prob2d:
-    def __init__(self, data, x_points, y_points, smooth=True):
+    def __init__(self, data, x_points, y_points,sigma=1, smooth=True):
         """
         Initialize histogramCDF using np.histogram2d to calculate PDF
         
@@ -97,7 +97,6 @@ class Prob2d:
 
         if smooth:
 
-            sigma = 1
             self.pdf_ = filter(self.pdf_, sigma=sigma)
             self.prob_ = filter(self.prob_, sigma=sigma)
 
