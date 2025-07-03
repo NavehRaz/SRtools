@@ -132,7 +132,7 @@ def getTheta(preset_name="humans_M_combined",type = "mode_overall",time_unit='au
     # Determine time unit conversion factor
     if time_unit == 'auto':
         # Auto-detect based on preset name
-        if any(keyword in preset_name.lower() for keyword in ['human', 'dog', 'cat', 'labrador', 'staffy', 'german', 'jack']):
+        if any(keyword in preset_name.lower() for keyword in ['human','Sweden','Denmark' 'dog', 'cat', 'labrador', 'staffy', 'german', 'jack']):
             time_unit = 'years'
         elif any(keyword in preset_name.lower() for keyword in ['ecoli', 'e. coli']):
             time_unit = 'hours'
@@ -205,4 +205,62 @@ def getTheta(preset_name="humans_M_combined",type = "mode_overall",time_unit='au
     # Return the vector [eta, beta, epsilon, xc]
     return np.array([eta, beta, epsilon, xc])
     
+
+def get_preset_names(type = "mode_overall"):
+    """
+    This function is used to get the names of all presets.
+    """
+    if type == "mode_overall":
+        csv_filename = "summery_mode_overall.csv"
+    elif type == "mode":
+        csv_filename = "summery_mode.csv"
+    elif type == "max_likelihood":
+        csv_filename = "summery_max_likelihood.csv"
+    else:
+        raise ValueError(f"Unknown type: {type}. Must be one of 'mode_overall', 'mode', or 'max_likelihood'")
+
+    # Get the directory where this module is located
+    current_dir = os.path.dirname(os.path.abspath(__file__))
+    # Construct the path to the Preset_values directory
+    preset_dir = os.path.join(current_dir, "Preset_values")
+    # Construct the full path to the CSV file
+    csv_file = os.path.join(preset_dir, csv_filename)
     
+    # Load the CSV file
+    try:
+        df = pd.read_csv(csv_file, index_col=0)
+    except FileNotFoundError:
+        raise FileNotFoundError(f"Could not find preset file: {csv_file}")
+
+    #return a list of all presets
+    return list(df.columns)
+
+def get_config_params(preset_name="humans_M_combined",
+                      config_params=['nsteps','time_step_multiplier','npeople','t_end'],types=[int,int,int,int]):
+    """
+    This function is used to get the configuration parameters for a given preset. They are returned as a dictionary.
+    """
+     #load the preset
+    # Check if preset_name is an alias and convert to actual name
+    original_preset_name = preset_name
+    if preset_name in PRESET_ALIASES:
+        preset_name = PRESET_ALIASES[preset_name]
+        print(f"Using alias '{original_preset_name}' -> '{preset_name}'")
+
+    csv_filename = 'All_config.csv'
+
+    # Get the directory where this module is located
+    current_dir = os.path.dirname(os.path.abspath(__file__))
+    # Construct the path to the Preset_values directory
+    preset_dir = os.path.join(current_dir, "Preset_values")
+    # Construct the full path to the CSV file
+    csv_file = os.path.join(preset_dir, csv_filename)
+
+    # Load the CSV file
+    try:
+        df = pd.read_csv(csv_file, index_col=0)
+    except FileNotFoundError:
+        raise FileNotFoundError(f"Could not find preset file: {csv_file}")
+    
+    #return a dictionary of the configuration parameters
+    return {config_params[i]: types[i](df.loc[config_params[i], preset_name]) for i in range(len(config_params))}
