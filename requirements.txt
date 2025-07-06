@@ -15,4 +15,5 @@ plotly>=5.3.0
 corner>=2.2.0
 h5py>=3.7.0
 statsmodels>=0.13.0
+astropy>=5.0.0
 -e git+ssh://git@github.com/NavehRaz/SRtools.git@4547ccc37309cec713c2e8729ac76352ce10dd36#egg=SRtools 
