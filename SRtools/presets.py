@@ -132,7 +132,7 @@ def getTheta(preset_name="humans_M_combined",type = "mode_overall",time_unit='au
     # Determine time unit conversion factor
     if time_unit == 'auto':
         # Auto-detect based on preset name
-        if any(keyword in preset_name.lower() for keyword in ['human','Sweden','Denmark' 'dog', 'cat', 'labrador', 'staffy', 'german', 'jack']):
+        if any(keyword in preset_name.lower() for keyword in ['human','sweden','denmark' 'dog', 'cat', 'labrador', 'staffy', 'german', 'jack']):
             time_unit = 'years'
         elif any(keyword in preset_name.lower() for keyword in ['ecoli', 'e. coli']):
             time_unit = 'hours'

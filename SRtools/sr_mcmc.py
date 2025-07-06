@@ -301,7 +301,7 @@ def getSampler(nwalkers, num_mcmc_steps, dataSet ,seed =None, npeople=10000, nst
     if prior_generator is None:
         pos = [draw_param(bins=bins,log_sapce=draw_params_in_log_space) for i in range(nwalkers)]
     else:
-        pos = prior_generator.sample(n_samples=nwalkers)
+        pos = prior_generator.sample(n_samples=nwalkers,temperature=0.5)
     
     
     if transformed:
