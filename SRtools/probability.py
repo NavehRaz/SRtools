@@ -238,7 +238,6 @@ class Prob2d:
         nrows, ncols = self.pdf_.shape
         upper_triangle = np.triu(self.pdf_, k=1)  # k=1 excludes the diagonal
         has_zeros = np.any(upper_triangle == 0)
-        print(has_zeros)
         if log:
             im = ax.imshow(np.log10(self.pdf_.T), extent=[self.x_points[0], self.x_points[-1], self.y_points[0], self.y_points[-1]], origin='lower')
         else:
