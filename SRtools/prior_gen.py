@@ -80,11 +80,11 @@ class PriorGenExtended(PriorGen):
     This class is used when we want to extend the thetas vector to more dimentions. It uses a seed value and variations
     to generate bins and draw params using sr_mcmc.get_bins_from_seed and sr_mcmc.draw_param.
     """
-    def __init__(self, values, lnprobs, seed, variations, ndims, draw_params_in_log_space = True):
+    def __init__(self, values, lnprobs, seed, variations, n_extra_dims, draw_params_in_log_space = True):
         self.seed = seed
         self.variations = variations
-        self.ndims = ndims
-        self.bins = sr_mcmc.get_bins_from_seed(seed, ndims, variations)
+        self.n_extra_dims = n_extra_dims
+        self.bins = sr_mcmc.get_bins_from_seed(seed, n_extra_dims, variations)
         self.draw_params_in_log_space = draw_params_in_log_space
         super().__init__(values, lnprobs)
 
@@ -106,11 +106,11 @@ class PriorGenExtended(PriorGen):
             theta = theta.reshape(1, -1)
             
         # Create extended theta array
-        theta_extended = np.zeros((n_samples, theta.shape[1] + self.ndims))
+        theta_extended = np.zeros((n_samples, theta.shape[1] + self.n_extra_dims))
         theta_extended[:, :theta.shape[1]] = theta
         
         # Add additional parameters for each sample
-        if self.ndims > 0:
+        if self.n_extra_dims > 0:
             for i in range(n_samples):
                 theta_extended[i, theta.shape[1]:] = sr_mcmc.draw_param(self.bins, self.draw_params_in_log_space)
             
@@ -126,7 +126,7 @@ class PriorGenExtended(PriorGen):
         bounds = []
         for i in range(len(self.values[0])):
             bounds.append([np.min(self.values[:,i])/expansion_factor,np.max(self.values[:,i])*expansion_factor])
-        for i in range(self.ndims):
+        for i in range(self.n_extra_dims):
             bin = self.bins[i][0]
             bounds.append([bin[0]/expansion_factor,bin[1]*expansion_factor])
         return bounds

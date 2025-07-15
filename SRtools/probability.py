@@ -252,18 +252,18 @@ def filter_params(data, sigma=1, **kwargs):
     if keep_columns in ['auto', 'auto_log']:
         use_log = (keep_columns == 'auto_log')
         keep_columns = _detect_boundary(data, axis=1, use_log=use_log, max_fraction=0.25)
-        print('keep_columns: ', keep_columns)
+        # print('keep_columns: ', keep_columns)
     
     # Handle auto detection for keep_rows
     if keep_rows in ['auto', 'auto_log']:
         use_log = (keep_rows == 'auto_log')
         keep_rows = _detect_boundary(data, axis=0, use_log=use_log, max_fraction=0.25)
-        print('keep_rows: ', keep_rows)
+        # print('keep_rows: ', keep_rows)
     # Handle auto detection for keep_diagonal
     if keep_diagonal in ['auto', 'auto_log']:
         use_log = (keep_diagonal == 'auto_log')
         keep_diagonal = _detect_boundary_diagonal(data, use_log=use_log, max_fraction=0.25)
-        print('keep_diagonal: ', keep_diagonal)
+        # print('keep_diagonal: ', keep_diagonal)
     # Convert boolean to int for diagonal/columns/rows
     if isinstance(keep_diagonal, bool):
         keep_diagonal = 2 if keep_diagonal else 0  # Default behavior: keep diagonal + 1 subdiagonal
