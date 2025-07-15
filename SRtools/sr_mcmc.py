@@ -193,10 +193,14 @@ def draw_param(bins, log_sapce = True):
     - theta (ndarray): An array of the parameters.
     """
     bin_index = np.random.randint(0, len(bins[0]))
-    if log_sapce:
-        theta = np.array([np.exp(np.random.uniform(np.log(bins[i][bin_index][0]), np.log(bins[i][bin_index][1]))) for i in range(len(bins))])
-    else:
-        theta = np.array([np.random.uniform(bins[i][bin_index][0], bins[i][bin_index][1]) for i in range(len(bins))])
+    try:
+        if log_sapce:
+            theta = np.array([np.exp(np.random.uniform(np.log(bins[i][bin_index][0]), np.log(bins[i][bin_index][1]))) for i in range(len(bins))])
+        else:
+            theta = np.array([np.random.uniform(bins[i][bin_index][0], bins[i][bin_index][1]) for i in range(len(bins))])
+    except Exception as e:
+        print("Exception occurred in draw_param. bins:", bins)
+        raise
     return theta
 
 #fix this function so that it take the variations as a list of 2 elements or a list of ndims lists of 2 elements or a list of ndims lists of n_bins lists of 2 elements. the usage of specific var_eta, varbeta etc should be dropped and the variations should be used instead, the function should return a list of ndims lists of n_bins lists of 2 elements.
