@@ -106,11 +106,7 @@ def lnlikeTransformed(theta_trans , n, nsteps, t_end, dataSet, metric = 'baysian
     """
     if set_params is None:
         set_params = {}
-    eta = theta_trans[3]/theta_trans[0]
-    beta=theta_trans[1]*eta
-    epsilon =theta_trans[3]**2/theta_trans[2]
-    xc = theta_trans[3]
-    theta = np.array([eta,beta,epsilon,xc])
+    theta = inv_transform(theta_trans, set_params)
     
     LnLike = model_func(theta, n, nsteps, t_end, dataSet,sim=sim, metric=metric, time_range=time_range, time_step_multiplier = time_step_multiplier, dt=dt, set_params=set_params, kwargs=kwargs)
     if metric =='survival':
