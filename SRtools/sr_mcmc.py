@@ -123,13 +123,20 @@ def transform(theta, set_params={}):
     beta = pv['beta']
     epsilon = pv['epsilon']
     xc = pv['xc']
+    if 'external_hazard' in pv:
+        external_hazard = pv['external_hazard']
+    else:
+        external_hazard = None
     xc_eta = xc/eta
     beta_eta = beta/eta
     xc2_epsilon = xc**2/epsilon
+    values = [xc_eta, beta_eta, xc2_epsilon,xc]
+    if external_hazard is not None:
+        values.append(external_hazard)
     if 'extra' in pv:
-        return np.array([xc_eta, beta_eta, xc2_epsilon,xc]+ pv['extra'].tolist())
+        return np.array(values + pv['extra'].tolist())
     else:
-        return np.array([xc_eta, beta_eta, xc2_epsilon,xc])
+        return np.array(values)
 
 def inv_transform(theta_trans, set_params={}):
     pv = parse_theta_trans(theta_trans, set_params)
@@ -137,11 +144,17 @@ def inv_transform(theta_trans, set_params={}):
     beta = pv['eta_beta'] * eta
     epsilon = pv['xc']**2 / pv['xc2_epsilon']
     xc = pv['xc']
-    theta = np.array([eta, beta, epsilon, xc])
-    if 'extra' in pv:
-        return np.concatenate([theta, pv['extra']])
+    if 'external_hazard' in pv:
+        external_hazard = pv['external_hazard']
     else:
-        return theta
+        external_hazard = None
+    values = [eta, beta, epsilon, xc]
+    if external_hazard is not None:
+        values.append(external_hazard)
+    if 'extra' in pv:
+        return np.array(values + pv['extra'].tolist())
+    else:
+        return np.array(values)
 
 def lnprior(theta,prior):
     """
