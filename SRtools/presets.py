@@ -328,6 +328,7 @@ def get_config_params(
             # Try to get time_range from config or from CSV
             if 'time_range' in config and config['time_range'] is not None:
                 if verbose:
+                    print(f"type of time_range: {type(config['time_range'])}")
                     print(f"Converting time_range from {config['time_range']} in {original_time_unit} to {time_unit}")
                 traw = ast.literal_eval(config['time_range'])
                 traw = [int(round(x * s)) for x in traw]
