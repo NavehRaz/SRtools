@@ -797,7 +797,7 @@ def heun_death_times_accelerator(s,dt,t,eta,beta,kappa,epsilon,xc,sdt,npeople,ex
     #uses the stochastic heun method to calculate the death times of the population
     death_times = []
     events = []
-    for i in range(npeople):
+    for l in range(npeople):
         x=0
         j=0
         ndt = dt/time_step_multiplier
@@ -828,7 +828,7 @@ def heun_death_times_accelerator(s,dt,t,eta,beta,kappa,epsilon,xc,sdt,npeople,ex
 def death_times_accelerator(s,dt,t,eta,beta,kappa,epsilon,xc,sdt,npeople,external_hazard = np.inf, time_step_multiplier = 1):
     death_times = []
     events = []
-    for i in range(npeople):
+    for l in range(npeople):
         x=0
         j=0
         ndt = dt/time_step_multiplier
@@ -859,7 +859,7 @@ def death_times_accelerator2(s,dt,t,eta,beta,kappa,epsilon,xc,sdt,npeople,extern
     def calculate_death_times(npeople, s, dt, t, eta, beta, kappa, epsilon, xc, sdt, external_hazard,time_step_multiplier):
         death_times = []
         events =[]
-        for i in range(npeople):
+        for l in range(npeople):
             died = False
             x = 0
             j = 0

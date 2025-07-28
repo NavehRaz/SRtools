@@ -325,7 +325,7 @@ def get_config_params(
         # Convert time_range if present in config_params or in the CSV
         if 'time_range' in config.keys():
             # Try to get time_range from config or from CSV
-            if 'time_range' in config:
+            if 'time_range' in config and config['time_range'] is not None:
                 traw = ast.literal_eval(config['time_range'])
                 traw = [int(round(x * s)) for x in traw]
                 config['time_range'] = traw
