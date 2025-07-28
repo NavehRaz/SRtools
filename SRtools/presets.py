@@ -265,7 +265,7 @@ def get_config_params(
         if from_unit not in to_days or to_unit not in to_days:
             raise ValueError(f"Unknown time unit(s): {from_unit}, {to_unit}")
         # Convert to days, then to target
-        days = 1.0 / to_days[from_unit]
+        days = to_days[from_unit]
         factor = to_days[to_unit] * days
         return factor
     
