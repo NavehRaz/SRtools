@@ -240,7 +240,8 @@ def get_config_params(
     preset_name="humans_M_combined",
     config_params=['nsteps', 'time_step_multiplier', 'npeople', 't_end', 'time_range'],
     types=[int, int, int, int, list],
-    time_unit=None
+    time_unit=None,
+    verbose=False
     ):
     """
     This function is used to get the configuration parameters for a given preset. They are returned as a dictionary.
@@ -326,6 +327,8 @@ def get_config_params(
         if 'time_range' in config.keys():
             # Try to get time_range from config or from CSV
             if 'time_range' in config and config['time_range'] is not None:
+                if verbose:
+                    print(f"Converting time_range from {original_time_unit} to {time_unit}")
                 traw = ast.literal_eval(config['time_range'])
                 traw = [int(round(x * s)) for x in traw]
                 config['time_range'] = traw
