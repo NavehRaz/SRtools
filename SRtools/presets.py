@@ -8,6 +8,7 @@ import matplotlib.pyplot as plt
 import os
 import sys
 import warnings
+import ast
 
 # Dictionary mapping aliases to actual preset names
 PRESET_ALIASES = {
@@ -235,12 +236,49 @@ def get_preset_names(type = "mode_overall"):
     #return a list of all presets
     return list(df.columns)
 
-def get_config_params(preset_name="humans_M_combined",
-                      config_params=['nsteps','time_step_multiplier','npeople','t_end'],types=[int,int,int,int]):
+def get_config_params(
+    preset_name="humans_M_combined",
+    config_params=['nsteps', 'time_step_multiplier', 'npeople', 't_end', 'time_range'],
+    types=[int, int, int, int, list],
+    time_unit=None
+    ):
     """
     This function is used to get the configuration parameters for a given preset. They are returned as a dictionary.
+    Optionally, you can specify a target time_unit (e.g., 'years', 'days', 'hours', 'generations').
+    If time_unit is given and differs from the detected original_time_unit, t_end and time_range will be converted accordingly.
     """
-     #load the preset
+
+    # Helper: get conversion factor from original_time_unit to time_unit
+    def get_time_unit_conversion_factor(from_unit, to_unit):
+        # Define conversion factors to days
+        to_days = {
+            'days': 1.0,
+            'years': 365,
+            'hours': 1.0 / 24.0,
+            'generations': 3.0/24.0, 
+        }
+        # If units are the same, factor is 1
+        if from_unit == to_unit:
+            return 1.0
+        # Convert from original to days, then days to target
+        if from_unit not in to_days or to_unit not in to_days:
+            raise ValueError(f"Unknown time unit(s): {from_unit}, {to_unit}")
+        # Convert to days, then to target
+        days = 1.0 / to_days[from_unit]
+        factor = to_days[to_unit] * days
+        return factor
+    
+    # Auto-detect original time unit from preset_name
+    preset_name_lower = preset_name.lower()
+    if any(keyword in preset_name_lower for keyword in ['human','sweden','denmark', 'dog', 'cat', 'labrador', 'staffy', 'german', 'jack']):
+        original_time_unit = 'years'
+    elif any(keyword in preset_name_lower for keyword in ['ecoli', 'e. coli']):
+        original_time_unit = 'hours'
+    elif any(keyword in preset_name_lower for keyword in ['yeast']):
+        original_time_unit = 'generations'
+    else:
+        original_time_unit = 'days'  # Default for other organisms
+
     # Check if preset_name is an alias and convert to actual name
     original_preset_name = preset_name
     if preset_name in PRESET_ALIASES:
@@ -261,6 +299,35 @@ def get_config_params(preset_name="humans_M_combined",
         df = pd.read_csv(csv_file, index_col=0)
     except FileNotFoundError:
         raise FileNotFoundError(f"Could not find preset file: {csv_file}")
-    
-    #return a dictionary of the configuration parameters
-    return {config_params[i]: types[i](df.loc[config_params[i], preset_name]) for i in range(len(config_params))}
+
+    # Get the config values as a dict
+    # Handle possible NaN for time_range gracefully
+    config = {}
+    for i in range(len(config_params)):
+        value = df.loc[config_params[i], preset_name]
+        param_type = types[i]
+        # If the type is not int, float, str, or bool, parse with ast.literal_eval
+        if param_type not in [int, float, str, bool]:
+            # If value is NaN or None, keep as None
+            if pd.isna(value) or value is None:
+                config[config_params[i]] = None
+            else:
+                config[config_params[i]] = ast.literal_eval(value)
+        else:
+            config[config_params[i]] = param_type(value)
+
+    # Optionally handle time unit conversion
+    if time_unit is not None and original_time_unit != time_unit:
+        s = get_time_unit_conversion_factor(original_time_unit, time_unit)
+        # Convert t_end if present
+        if 't_end' in config.keys():
+            config['t_end'] = int(round(int(config['t_end']) * s))
+        # Convert time_range if present in config_params or in the CSV
+        if 'time_range' in config.keys():
+            # Try to get time_range from config or from CSV
+            if 'time_range' in config:
+                traw = ast.literal_eval(config['time_range'])
+                traw = [int(round(x * s)) for x in traw]
+                config['time_range'] = traw
+
+    return config

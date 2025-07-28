@@ -105,11 +105,42 @@ class SR_lf_karin_human(SR_lf):
                     tscale = 'years',bandwidth=bandwidth,external_hazard=external_hazard, time_step_multiplier=time_step_multiplier, parallel=parallel, heun=heun)
         
 
-def getSr(theta, n=25000,nsteps=4500,t_end=110, external_hazard = np.inf, time_step_multiplier=1,parallel = False):
+def getSr(theta, n=25000, nsteps=4500, t_end=110, external_hazard=np.inf, time_step_multiplier=1, parallel=False, step_size=None):
+    """
+    Generate SR model simulation with given parameters.
+
+    Optionally specify step_size. If step_size is given, nsteps and time_step_multiplier are ignored and recalculated so that
+    t_end/(nsteps*time_step_multiplier) = step_size. If nsteps*time_step_multiplier <= 6000, time_step_multiplier=1, else
+    increase time_step_multiplier until nsteps <= 6000. Both nsteps and time_step_multiplier are integers.
+    """
+    if step_size is not None:
+        # Calculate total number of steps needed
+        total_steps = int(np.ceil(t_end / step_size))
+        # Try to keep nsteps <= 6000 by increasing time_step_multiplier
+        nsteps = total_steps
+        time_step_multiplier = 1
+        while nsteps > 6000:
+            time_step_multiplier += 1
+            nsteps = int(np.ceil(total_steps / time_step_multiplier))
+        # Ensure nsteps and time_step_multiplier are at least 1
+        nsteps = max(1, nsteps)
+        time_step_multiplier = max(1, time_step_multiplier)
 
     eta = theta[0]
     beta = theta[1]
     epsilon = theta[2]
     xc = theta[3]
-    sim = SR_lf(eta=eta,beta=beta,epsilon=epsilon,xc=xc,kappa=0.5,npeople=n,nsteps=nsteps,t_end=t_end,external_hazard=external_hazard,time_step_multiplier=time_step_multiplier,parallel=parallel)
+    sim = SR_lf(
+        eta=eta,
+        beta=beta,
+        epsilon=epsilon,
+        xc=xc,
+        kappa=0.5,
+        npeople=n,
+        nsteps=nsteps,
+        t_end=t_end,
+        external_hazard=external_hazard,
+        time_step_multiplier=time_step_multiplier,
+        parallel=parallel
+    )
     return sim

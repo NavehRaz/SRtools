@@ -44,8 +44,29 @@ class SR_Hetro(srl.SR_lf):
     
 
 
-def getSrHetro(theta, n=25000,nsteps=6000,t_end=110, external_hazard = np.inf,time_step_multiplier =1, npeople =None, parallel = False,eta_var = 0, beta_var = 0, epsilon_var = 0, xc_var = 0.2, kappa_var = 0, hetro = True, bandwidth = 3):
-
+def getSrHetro(
+    theta,
+    n=25000,
+    nsteps=6000,
+    t_end=110,
+    external_hazard=np.inf,
+    time_step_multiplier=1,
+    npeople=None,
+    parallel=False,
+    eta_var=0,
+    beta_var=0,
+    epsilon_var=0,
+    xc_var=0.2,
+    kappa_var=0,
+    hetro=True,
+    bandwidth=3,
+    step_size=None
+    ):
+    """
+    Optionally specify step_size. If step_size is given, nsteps and time_step_multiplier are ignored and recalculated so that
+    t_end/(nsteps*time_step_multiplier) = step_size. If nsteps*time_step_multiplier <= 6000, time_step_multiplier=1, else
+    increase time_step_multiplier until nsteps <= 6000. Both nsteps and time_step_multiplier are integers.
+    """
     if npeople is not None:
         n = npeople
     eta = theta[0]
@@ -53,20 +74,49 @@ def getSrHetro(theta, n=25000,nsteps=6000,t_end=110, external_hazard = np.inf,ti
     epsilon = theta[2]
     xc = theta[3]
     if not hetro:
-        eta_var =0
-        beta_var =0
-        epsilon_var =0
-        xc_var =0
-        kappa_var =0
+        eta_var = 0
+        beta_var = 0
+        epsilon_var = 0
+        xc_var = 0
+        kappa_var = 0
 
     if external_hazard is None or external_hazard == 'None':
         external_hazard = np.inf
-    
-    sim = SR_Hetro(eta=eta,beta=beta,epsilon=epsilon,xc=xc,
-                   eta_var=eta_var,beta_var=beta_var,kappa_var=kappa_var,epsilon_var=epsilon_var,xc_var=xc_var,
-                   kappa=0.5,npeople=n,nsteps=nsteps,t_end=t_end,external_hazard=external_hazard, time_step_multiplier=time_step_multiplier,
-                     parallel=parallel, bandwidth=bandwidth)
-    
+
+    # Handle step_size logic
+    if step_size is not None:
+        total_steps = int(np.ceil(t_end / step_size))
+        if total_steps <= 6000:
+            nsteps = total_steps
+            time_step_multiplier = 1
+        else:
+            # Find smallest integer time_step_multiplier so that nsteps <= 6000
+            time_step_multiplier = int(np.ceil(total_steps / 6000))
+            nsteps = int(np.ceil(total_steps / time_step_multiplier))
+            # Ensure both are at least 1
+            time_step_multiplier = max(1, time_step_multiplier)
+            nsteps = max(1, nsteps)
+
+    sim = SR_Hetro(
+        eta=eta,
+        beta=beta,
+        epsilon=epsilon,
+        xc=xc,
+        eta_var=eta_var,
+        beta_var=beta_var,
+        kappa_var=kappa_var,
+        epsilon_var=epsilon_var,
+        xc_var=xc_var,
+        kappa=0.5,
+        npeople=n,
+        nsteps=nsteps,
+        t_end=t_end,
+        external_hazard=external_hazard,
+        time_step_multiplier=time_step_multiplier,
+        parallel=parallel,
+        bandwidth=bandwidth
+    )
+
     return sim
 
 

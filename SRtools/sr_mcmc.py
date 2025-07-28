@@ -1,3 +1,22 @@
+"""
+SRtools MCMC Module
+
+This module provides comprehensive MCMC (Markov Chain Monte Carlo) sampling functionality
+for the Saturating Removal (SR) model of aging and mortality. It includes parameter estimation,
+posterior sampling, and analysis tools for survival data.
+
+Key Features:
+- MCMC sampling using emcee ensemble sampler
+- Parameter transformation and prior handling
+- Automatic boundary detection for filtering
+- Sample analysis and visualization
+- Backend storage and restart capabilities
+- Autocorrelation monitoring and convergence detection
+
+The module supports both standard and transformed parameter spaces, with flexible
+prior specification and likelihood functions for different metrics (Bayesian, survival).
+"""
+
 from SRtools import SRmodellib as sr
 import numpy as np
 from SRtools import SRmodellib_lifelines as srl
@@ -12,10 +31,57 @@ import pandas as pd
 
 def parse_theta(theta, set_params):
     """
-    Parses the parameter array 'theta' according to the dictionary 'set_params'.
-    Any parameter found in 'set_params' is skipped in 'theta' and taken directly from 'set_params'.
-    Default parameter order is [eta, beta, epsilon, xc, external_hazard].
-    Any remaining items from 'theta' are returned in param_values['extra'].
+    Parse parameter array according to fixed parameter dictionary.
+
+    This function handles mixed parameter specification where some parameters
+    are fixed (in set_params) and others are free (in theta). Parameters
+    are parsed in the standard SR model order.
+
+    Parameters:
+    -----------
+    theta : array-like
+        Array of free parameters to be parsed
+    set_params : dict
+        Dictionary of fixed parameters. Keys can be: 'eta', 'beta', 'epsilon', 
+        'xc', 'external_hazard'
+
+    Returns:
+    --------
+    dict
+        Dictionary containing all parameters with keys: 'eta', 'beta', 'epsilon', 
+        'xc', 'external_hazard', 'extra'. Any additional parameters in theta
+        beyond the standard 5 are stored in 'extra'. If 'external_hazard' is not
+        a parameter (i.e., not present in set_params and not in theta), the returned
+        dictionary will simply not include it, and theta will be of length 4.
+
+    Notes:
+    ------
+    Parameter order: [eta, beta, epsilon, xc, external_hazard]
+    If a parameter is in set_params, it's taken from there and skipped in theta.
+    If 'external_hazard' is not a parameter (not in set_params and not in theta), 
+    this function will still work and return a dictionary with only the four main 
+    parameters ('eta', 'beta', 'epsilon', 'xc'), and theta should be of length 4.
+    # Example: If set_params = {'beta': 0.5, 'external_hazard': 0.01} and theta = [1.0, 0.2, 0.05],
+    # then the mapping will be:
+    #   eta = 1.0         (from theta[0])
+    #   beta = 0.5        (from set_params)
+    #   epsilon = 0.2     (from theta[1])
+    #   xc = 0.05         (from theta[2])
+    #   external_hazard = 0.01 (from set_params)
+    # Example: If set_params = {'beta': 0.5} and theta = [1.0, 0.2, 0.05, 0.01],
+    # then the mapping will be:
+    #   eta = 1.0         (from theta[0])
+    #   beta = 0.5        (from set_params)
+    #   epsilon = 0.2     (from theta[1])
+    #   xc = 0.05         (from theta[2])
+    #   external_hazard = 0.01 (from theta[3])
+    # Example: If set_params = {'beta': 0.5} and theta = [1.0, 0.2, 0.05],
+    # and 'external_hazard' is not a parameter, the mapping will be:
+    #   eta = 1.0         (from theta[0])
+    #   beta = 0.5        (from set_params)
+    #   epsilon = 0.2     (from theta[1])
+    #   xc = 0.05         (from theta[2])
+    #   (no external_hazard key in the output)
     """
     param_names = ['eta', 'beta', 'epsilon', 'xc', 'external_hazard']
     param_values = {}
@@ -38,10 +104,49 @@ def parse_theta(theta, set_params):
 
 def parse_theta_trans(theta_trans, set_params):
     """
-    Parses the parameter array 'theta' according to the dictionary 'set_params'.
-    Any parameter found in 'set_params' is skipped in 'theta' and taken directly from 'set_params'.
-    Default parameter order is [xc_eta, eta_beta, xc2_epsilon, xc, external_hazard].
-    Any remaining items from 'theta' are returned in param_values['extra'].
+    Parse transformed parameter array according to fixed parameter dictionary.
+    
+    This function handles mixed parameter specification for the transformed
+    parameter space. Parameters are parsed in the transformed SR model order.
+    
+    Parameters:
+    -----------
+    theta_trans : array-like
+        Array of transformed free parameters to be parsed
+    set_params : dict
+        Dictionary of fixed transformed parameters. Keys can be: 'xc_eta', 
+        'eta_beta', 'xc2_epsilon', 'xc', 'external_hazard'
+    
+    Returns:
+    --------
+    dict
+        Dictionary containing all transformed parameters with keys: 'xc_eta', 
+        'eta_beta', 'xc2_epsilon', 'xc', 'external_hazard', 'extra'. Any 
+        additional parameters in theta_trans beyond the standard 5 are stored 
+        in 'extra'. If 'external_hazard' is not a parameter (not in set_params and not in theta_trans), 
+        this function will still work and return a dictionary with only the four main 
+        transformed parameters ('xc_eta', 'eta_beta', 'xc2_epsilon', 'xc'), and theta_trans should be of length 4.
+    
+    Notes:
+    ------
+    Transformed parameter order: [xc_eta, eta_beta, xc2_epsilon, xc, external_hazard]
+    These correspond to: xc/eta, beta/eta, xc²/epsilon, xc, external_hazard
+    # Example:
+    # Suppose theta_trans = [0.5, 2.0, 0.1, 0.05, 0.01] and set_params = {'xc': 0.07}
+    # The function will assign:
+    #   'xc_eta'         = 0.5      (from theta_trans[0])
+    #   'eta_beta'       = 2.0      (from theta_trans[1])
+    #   'xc2_epsilon'    = 0.1      (from theta_trans[2])
+    #   'xc'             = 0.07     (from set_params, not from theta_trans[3])
+    #   'external_hazard'= 0.01     (from theta_trans[4])
+    # If theta_trans has more than 5 elements, the extras are stored in 'extra'.
+    # If set_params = {'xc': 0.07} and theta_trans = [0.5, 2.0, 0.1, 0.01] (no external_hazard),
+    # the mapping will be:
+    #   'xc_eta'         = 0.5      (from theta_trans[0])
+    #   'eta_beta'       = 2.0      (from theta_trans[1])
+    #   'xc2_epsilon'    = 0.1      (from theta_trans[2])
+    #   'xc'             = 0.07     (from set_params)
+    #   (no external_hazard key in the output)
     """
     param_names = ['xc_eta', 'eta_beta', 'xc2_epsilon', 'xc', 'external_hazard']
     param_values = {}
@@ -61,9 +166,53 @@ def parse_theta_trans(theta_trans, set_params):
     param_values['extra'] = theta_trans[idx:]
     return param_values
 
-def model(theta , n, nsteps, t_end, dataSet, sim=None, metric = 'baysian', time_range=None, time_step_multiplier = 1,parallel = False, dt=1, set_params=None, kwargs=None):
+def model(theta, n, nsteps, t_end, dataSet, sim=None, metric='baysian', time_range=None, 
+          time_step_multiplier=1, parallel=False, dt=1, set_params=None, kwargs=None):
     """
-    The function accepts the parameters of the SR model and returns score according to the metric.
+    Evaluate SR model with given parameters and return score according to metric.
+    
+    This function simulates the Saturating Removal model with the provided parameters
+    and compares the simulation results to the observed dataset using the specified
+    metric. It handles parameter parsing and simulation setup.
+    
+    Parameters:
+    -----------
+    theta : array-like
+        Model parameters [eta, beta, epsilon, xc, external_hazard, ...]
+    n : int
+        Number of individuals to simulate
+    nsteps : int
+        Number of time steps for simulation
+    t_end : float
+        End time for simulation
+    dataSet : object
+        Dataset object containing observed data for comparison
+    sim : object, optional
+        Pre-computed simulation object. If None, simulation is performed
+    metric : str, default='baysian'
+        Metric for comparison: 'baysian', 'survival', etc.
+    time_range : tuple, optional
+        Time range (start, end) for comparison
+    time_step_multiplier : float, default=1
+        Multiplier for time step size
+    parallel : bool, default=False
+        Whether to use parallel simulation
+    dt : float, default=1
+        Time step for distance calculation
+    set_params : dict, optional
+        Dictionary of fixed parameters
+    kwargs : dict, optional
+        Additional keyword arguments
+    
+    Returns:
+    --------
+    float
+        Score according to the specified metric. Returns -inf for invalid parameters.
+    
+    Notes:
+    ------
+    The function returns -inf if 1/beta < time_step_size or if any NaN values
+    are encountered in the probability calculation.
     """
     if set_params is None:
         set_params = {}
@@ -88,9 +237,53 @@ def model(theta , n, nsteps, t_end, dataSet, sim=None, metric = 'baysian', time_
 
 
 
-def lnlike(theta , n, nsteps, t_end, dataSet, metric = 'baysian', time_range=None, time_step_multiplier = 1, sim=None, dt=1, set_params=None,model_func=model, kwargs=None):
+def lnlike(theta, n, nsteps, t_end, dataSet, metric='baysian', time_range=None, 
+           time_step_multiplier=1, sim=None, dt=1, set_params=None, model_func=model, kwargs=None):
     """
-    The likelihood function for the MCMC sampler.
+    Calculate log-likelihood for MCMC sampling.
+    
+    This function computes the log-likelihood of the model parameters given the
+    observed data. It wraps the model function and handles metric-specific
+    transformations.
+    
+    Parameters:
+    -----------
+    theta : array-like
+        Model parameters [eta, beta, epsilon, xc, external_hazard, ...]
+    n : int
+        Number of individuals to simulate
+    nsteps : int
+        Number of time steps for simulation
+    t_end : float
+        End time for simulation
+    dataSet : object
+        Dataset object containing observed data
+    metric : str, default='baysian'
+        Metric for comparison: 'baysian', 'survival', etc.
+    time_range : tuple, optional
+        Time range (start, end) for comparison
+    time_step_multiplier : float, default=1
+        Multiplier for time step size
+    sim : object, optional
+        Pre-computed simulation object
+    dt : float, default=1
+        Time step for distance calculation
+    set_params : dict, optional
+        Dictionary of fixed parameters
+    model_func : callable, default=model
+        Function to evaluate model
+    kwargs : dict, optional
+        Additional keyword arguments
+    
+    Returns:
+    --------
+    float
+        Log-likelihood value. For 'survival' metric, returns 1/score.
+    
+    Notes:
+    ------
+    For 'survival' metric, the likelihood is inverted (1/score) to convert
+    from distance to likelihood.
     """
     if set_params is None:
         set_params = {}
@@ -100,9 +293,53 @@ def lnlike(theta , n, nsteps, t_end, dataSet, metric = 'baysian', time_range=Non
         LnLike =1/LnLike
     return LnLike
 
-def lnlikeTransformed(theta_trans , n, nsteps, t_end, dataSet, metric = 'baysian', time_range=None, time_step_multiplier = 1, sim=None, dt=1, set_params=None,model_func=model, kwargs=None):
+def lnlikeTransformed(theta_trans, n, nsteps, t_end, dataSet, metric='baysian', time_range=None, 
+                      time_step_multiplier=1, sim=None, dt=1, set_params=None, model_func=model, kwargs=None):
     """
-    The likelihood function for the MCMC sampler.
+    Calculate log-likelihood for transformed parameters in MCMC sampling.
+    
+    This function computes the log-likelihood for the transformed parameter space.
+    It first transforms the parameters back to the original space, then computes
+    the likelihood using the standard model function.
+    
+    Parameters:
+    -----------
+    theta_trans : array-like
+        Transformed model parameters [xc_eta, eta_beta, xc2_epsilon, xc, external_hazard, ...]
+    n : int
+        Number of individuals to simulate
+    nsteps : int
+        Number of time steps for simulation
+    t_end : float
+        End time for simulation
+    dataSet : object
+        Dataset object containing observed data
+    metric : str, default='baysian'
+        Metric for comparison: 'baysian', 'survival', etc.
+    time_range : tuple, optional
+        Time range (start, end) for comparison
+    time_step_multiplier : float, default=1
+        Multiplier for time step size
+    sim : object, optional
+        Pre-computed simulation object
+    dt : float, default=1
+        Time step for distance calculation
+    set_params : dict, optional
+        Dictionary of fixed transformed parameters
+    model_func : callable, default=model
+        Function to evaluate model
+    kwargs : dict, optional
+        Additional keyword arguments
+    
+    Returns:
+    --------
+    float
+        Log-likelihood value for the transformed parameters
+    
+    Notes:
+    ------
+    The function first calls inv_transform() to convert back to original parameter
+    space, then computes the likelihood using the standard model function.
     """
     if set_params is None:
         set_params = {}
@@ -114,6 +351,35 @@ def lnlikeTransformed(theta_trans , n, nsteps, t_end, dataSet, metric = 'baysian
     return LnLike
 
 def transform(theta, set_params={}):
+    """
+    Transform parameters from original to transformed space.
+    
+    This function converts the standard SR model parameters to a transformed
+    parameter space that may be more suitable for MCMC sampling. The transformation
+    helps with parameter correlations and sampling efficiency.
+    
+    Parameters:
+    -----------
+    theta : array-like
+        Original parameters [eta, beta, epsilon, xc, external_hazard, ...]
+    set_params : dict, default={}
+        Dictionary of fixed parameters
+    
+    Returns:
+    --------
+    ndarray
+        Transformed parameters [xc_eta, eta_beta, xc2_epsilon, xc, external_hazard, ...]
+    
+    Notes:
+    ------
+    Transformation:
+    - xc_eta = xc/eta
+    - eta_beta = beta/eta  
+    - xc2_epsilon = xc²/epsilon
+    - xc = xc (unchanged)
+    - external_hazard = external_hazard (unchanged)
+    - extra parameters are preserved unchanged
+    """
     pv = parse_theta(theta, set_params)
     eta = pv['eta']
     beta = pv['beta']
@@ -135,6 +401,34 @@ def transform(theta, set_params={}):
         return np.array(values)
 
 def inv_transform(theta_trans, set_params={}):
+    """
+    Inverse transform parameters from transformed to original space.
+    
+    This function converts the transformed parameters back to the original
+    SR model parameter space. It is the inverse of the transform() function.
+    
+    Parameters:
+    -----------
+    theta_trans : array-like
+        Transformed parameters [xc_eta, eta_beta, xc2_epsilon, xc, external_hazard, ...]
+    set_params : dict, default={}
+        Dictionary of fixed transformed parameters
+    
+    Returns:
+    --------
+    ndarray
+        Original parameters [eta, beta, epsilon, xc, external_hazard, ...]
+    
+    Notes:
+    ------
+    Inverse transformation:
+    - eta = xc / xc_eta
+    - beta = eta_beta * eta
+    - epsilon = xc² / xc2_epsilon
+    - xc = xc (unchanged)
+    - external_hazard = external_hazard (unchanged)
+    - extra parameters are preserved unchanged
+    """
     pv = parse_theta_trans(theta_trans, set_params)
     eta = pv['xc'] / pv['xc_eta']
     beta = pv['eta_beta'] * eta
@@ -152,9 +446,36 @@ def inv_transform(theta_trans, set_params={}):
     else:
         return np.array(values)
 
-def lnprior(theta,prior):
+def lnprior(theta, prior):
     """
-    The prior function for the MCMC sampler.
+    Calculate log-prior for MCMC sampling.
+    
+    This function evaluates the log-prior probability for the given parameters.
+    It implements uniform priors within the specified bounds.
+    
+    Parameters:
+    -----------
+    theta : array-like
+        Model parameters to evaluate
+    prior : list
+        List of prior bounds for each parameter. Each element should be
+        [min_value, max_value] for the corresponding parameter in theta
+    
+    Returns:
+    --------
+    float
+        Log-prior value. Returns 0.0 if all parameters are within bounds,
+        -inf if any parameter is outside bounds.
+    
+    Raises:
+    -------
+    ValueError
+        If the length of theta doesn't match the length of prior
+    
+    Notes:
+    ------
+    The function implements uniform priors, so the log-prior is constant
+    (0.0) when all parameters are within bounds, and -inf otherwise.
     """
     #check theta is same length as prior
     if len(theta) != len(prior):
@@ -168,9 +489,53 @@ def lnprior(theta,prior):
     
 
 
-def lnprob(theta , n, nsteps, t_end, dataSet, metric = 'survival', time_range=None, time_step_multiplier = 1,prior = None, dt=1, set_params=None,model_func=model, kwargs=None):
+def lnprob(theta, n, nsteps, t_end, dataSet, metric='survival', time_range=None, 
+           time_step_multiplier=1, prior=None, dt=1, set_params=None, model_func=model, kwargs=None):
     """
-    The posterior function for the MCMC sampler.
+    Calculate log-posterior for MCMC sampling.
+    
+    This function computes the log-posterior probability by combining the
+    log-prior and log-likelihood: log(posterior) = log(prior) + log(likelihood).
+    
+    Parameters:
+    -----------
+    theta : array-like
+        Model parameters [eta, beta, epsilon, xc, external_hazard, ...]
+    n : int
+        Number of individuals to simulate
+    nsteps : int
+        Number of time steps for simulation
+    t_end : float
+        End time for simulation
+    dataSet : object
+        Dataset object containing observed data
+    metric : str, default='survival'
+        Metric for comparison: 'baysian', 'survival', etc.
+    time_range : tuple, optional
+        Time range (start, end) for comparison
+    time_step_multiplier : float, default=1
+        Multiplier for time step size
+    prior : list
+        List of prior bounds for each parameter
+    dt : float, default=1
+        Time step for distance calculation
+    set_params : dict, optional
+        Dictionary of fixed parameters
+    model_func : callable, default=model
+        Function to evaluate model
+    kwargs : dict, optional
+        Additional keyword arguments
+    
+    Returns:
+    --------
+    float
+        Log-posterior value. Returns -inf if prior is invalid or likelihood
+        evaluation fails.
+    
+    Notes:
+    ------
+    The function first evaluates the prior. If the prior is -inf (invalid
+    parameters), it returns -inf immediately without computing the likelihood.
     """
     if set_params is None:
         set_params = {}
@@ -190,16 +555,39 @@ def lnprobTransformed(theta_trans , n, nsteps, t_end, dataSet, metric = 'surviva
         return -np.inf
     return lp + lnlikeTransformed(theta_trans , n, nsteps, t_end, dataSet=dataSet, metric=metric, time_range=time_range, time_step_multiplier = time_step_multiplier, dt=dt, set_params=set_params,model_func=model_func, kwargs=kwargs)
 
-def draw_param(bins, log_sapce = True):
+def draw_param(bins, log_space=True):
     """
-    Draw a random parameter from the bins. The bins are a list of lists of parameter bins.
-    First, we randomly choose the bin, then we randomly choose the parameter from the bin with a uniform distribution (same bin index for all parameters).
-
+    Draw random parameters from specified bins.
+    
+    This function randomly samples parameters from the provided bins. It first
+    selects a random bin index, then draws parameters from that bin for all
+    dimensions using either uniform or log-uniform sampling.
+    
     Parameters:
-    - bins (list): A list of lists of parameter bins.
-
+    -----------
+    bins : list
+        List of parameter bins. Each element should be a list of [min, max] pairs
+        for each parameter dimension. Can also be a list of lists of bins for
+        multiple bin options per parameter.
+    log_space : bool, default=True
+        If True, sample in log space (log-uniform distribution)
+        If False, sample in linear space (uniform distribution)
+    
     Returns:
-    - theta (ndarray): An array of the parameters.
+    --------
+    ndarray
+        Array of randomly drawn parameters
+    
+    Raises:
+    -------
+    Exception
+        If there's an error during parameter drawing
+    
+    Notes:
+    ------
+    The function randomly selects a bin index and uses the same index for all
+    parameters. This ensures that all parameters are drawn from the same
+    "bin configuration".
     """
     bin_index = np.random.randint(0, len(bins[0]))
     try:
@@ -245,12 +633,86 @@ def get_bins_from_seed(seed, ndims=4, variations=[0.7, 1.3]):
 
    
 
-def getSampler(nwalkers, num_mcmc_steps, dataSet ,seed =None, npeople=10000, nsteps=5000, t_end=None, ndim = 4,
-                bins =None, variations = [0.7, 1.3], draw_params_in_log_space =True, prior_generator = None,
-                back_end_file= None, metric = 'baysian', time_range=None, time_step_multiplier = 1, prior = None, 
-                restartFromBackEnd = False, progress = False, transformed =False, dt=1, set_params=None ,model_func =model, **kwargs):
+def getSampler(nwalkers, num_mcmc_steps, dataSet, seed=None, npeople=10000, nsteps=5000, t_end=None, ndim=4,
+               bins=None, variations=[0.7, 1.3], draw_params_in_log_space=True, prior_generator=None,
+               back_end_file=None, metric='baysian', time_range=None, time_step_multiplier=1, prior=None, 
+               restartFromBackEnd=False, progress=False, transformed=False, dt=1, set_params=None, model_func=model, **kwargs):
     """
-    The function to get the MCMC sampler.
+    Create and run MCMC sampler for SR model parameter estimation.
+    
+    This function sets up and runs an MCMC sampling procedure using the emcee
+    ensemble sampler to estimate the posterior distribution of SR model parameters.
+    
+    Parameters:
+    -----------
+    nwalkers : int
+        Number of walkers in the ensemble sampler
+    num_mcmc_steps : int
+        Number of MCMC steps to run
+    dataSet : object
+        Dataset object containing observed data
+    seed : array-like, optional
+        Seed parameters for generating initial bins. If None, bins must be provided
+    npeople : int, default=10000
+        Number of individuals to simulate
+    nsteps : int, default=5000
+        Number of time steps for simulation
+    t_end : float, optional
+        End time for simulation. If None, uses dataSet.t_end
+    ndim : int, default=4
+        Number of dimensions (parameters) to sample
+    bins : list, optional
+        Parameter bins for initial walker positions. If None, generated from seed
+    variations : list, default=[0.7, 1.3]
+        Variations for generating bins from seed. Can be:
+        - List of 2 elements: applied to all parameters
+        - List of ndim lists of 2 elements: specific for each parameter
+        - List of ndim lists of n_bins lists of 2 elements: multiple bins per parameter
+    draw_params_in_log_space : bool, default=True
+        Whether to draw initial parameters in log space
+    prior_generator : object, optional
+        Prior generator object for sampling initial positions
+    back_end_file : str, optional
+        Path to HDF5 file for storing sampler backend
+    metric : str, default='baysian'
+        Metric for likelihood calculation: 'baysian', 'survival', etc.
+    time_range : tuple, optional
+        Time range (start, end) for comparison
+    time_step_multiplier : float, default=1
+        Multiplier for time step size
+    prior : list or float, optional
+        Prior bounds. Can be:
+        - List of [min, max] pairs for each parameter
+        - Float: expansion factor for generating bounds from bins
+        - None: uses default expansion factor of 10
+    restartFromBackEnd : bool, default=False
+        Whether to restart from existing backend file
+    progress : bool, default=False
+        Whether to show progress bar
+    transformed : bool, default=False
+        Whether to use transformed parameter space
+    dt : float, default=1
+        Time step for distance calculation
+    set_params : dict, optional
+        Dictionary of fixed parameters
+    model_func : callable, default=model
+        Function to evaluate model
+    **kwargs : dict
+        Additional keyword arguments (for backward compatibility)
+    
+    Returns:
+    --------
+    emcee.EnsembleSampler
+        Configured and run MCMC sampler object
+    
+    Notes:
+    ------
+    The function handles backward compatibility with individual bin parameters
+    (eta_bins, beta_bins, etc.) and automatically sets external_hazard from
+    dataSet if not provided and ndim=4.
+    
+    The sampler can be configured to use either the original or transformed
+    parameter space, with appropriate likelihood and prior functions.
     """
     ####THIS IS FOR BACKWARDS COMPATIBILITY.##### 
     eta_bins = kwargs.get('eta_bins', None)
@@ -346,7 +808,79 @@ def getSamplerAutoCorrMon(nwalkers, num_mcmc_steps, dataSet, seed=None, npeople=
                           restartFromBackEnd=False, progress=False, plot_correlations=False, transformed=False, dt=1,
                           set_params=None, model_func=model, **kwargs):
     """
-    The function to get the MCMC sampler with autocorrelation monitoring.
+    Create and run MCMC sampler with autocorrelation monitoring.
+    
+    This function sets up and runs an MCMC sampling procedure with automatic
+    convergence detection based on autocorrelation analysis. The sampler stops
+    when the autocorrelation time has converged.
+    
+    Parameters:
+    -----------
+    nwalkers : int
+        Number of walkers in the ensemble sampler
+    num_mcmc_steps : int
+        Maximum number of MCMC steps to run
+    dataSet : object
+        Dataset object containing observed data
+    seed : array-like, optional
+        Seed parameters for generating initial bins. If None, bins must be provided
+    npeople : int, default=10000
+        Number of individuals to simulate
+    nsteps : int, default=5000
+        Number of time steps for simulation
+    t_end : float, optional
+        End time for simulation. If None, uses dataSet.t_end
+    ndim : int, default=4
+        Number of dimensions (parameters) to sample
+    bins : list, optional
+        Parameter bins for initial walker positions. If None, generated from seed
+    variations : list, default=[0.7, 1.3]
+        Variations for generating bins from seed
+    draw_params_in_log_space : bool, default=True
+        Whether to draw initial parameters in log space
+    back_end_file : str, optional
+        Path to HDF5 file for storing sampler backend
+    metric : str, default='baysian'
+        Metric for likelihood calculation: 'baysian', 'survival', etc.
+    time_range : tuple, optional
+        Time range (start, end) for comparison
+    time_step_multiplier : float, default=1
+        Multiplier for time step size
+    prior : list or float, optional
+        Prior bounds. Can be list of [min, max] pairs or expansion factor
+    restartFromBackEnd : bool, default=False
+        Whether to restart from existing backend file
+    progress : bool, default=False
+        Whether to show progress bar
+    plot_correlations : bool, default=False
+        Whether to plot autocorrelation convergence
+    transformed : bool, default=False
+        Whether to use transformed parameter space
+    dt : float, default=1
+        Time step for distance calculation
+    set_params : dict, optional
+        Dictionary of fixed parameters
+    model_func : callable, default=model
+        Function to evaluate model
+    **kwargs : dict
+        Additional keyword arguments (for backward compatibility)
+    
+    Returns:
+    --------
+    tuple
+        (sampler, autocorr, niters, index) where:
+        - sampler: emcee.EnsembleSampler object
+        - autocorr: array of autocorrelation time estimates
+        - niters: array of iteration numbers
+        - index: number of convergence checks performed
+    
+    Notes:
+    ------
+    The sampler automatically stops when:
+    1. All autocorrelation times are less than iteration/100
+    2. Relative change in autocorrelation time is less than 1%
+    
+    Convergence is checked every 100 iterations.
     """
     import matplotlib.pyplot as plt
 
@@ -443,17 +977,74 @@ def getSamplerAutoCorrMon(nwalkers, num_mcmc_steps, dataSet, seed=None, npeople=
 
 
 
-def loadSamples(back_end_file,flat = True, thin = 1, discard = 0):
+def loadSamples(back_end_file, flat=True, thin=1, discard=0):
+    """
+    Load MCMC samples from HDF5 backend file.
+    
+    This function loads the MCMC samples and log probabilities from an emcee
+    HDF5 backend file with options for thinning and discarding initial samples.
+    
+    Parameters:
+    -----------
+    back_end_file : str
+        Path to the HDF5 backend file
+    flat : bool, default=True
+        Whether to flatten the samples (combine all walkers)
+    thin : int, default=1
+        Thinning factor (take every nth sample)
+    discard : int, default=0
+        Number of initial samples to discard
+    
+    Returns:
+    --------
+    tuple
+        (samples, lnprobs) where:
+        - samples: array of parameter samples
+        - lnprobs: array of log probability values
+    """
     backend = emcee.backends.HDFBackend(back_end_file)
     samples = backend.get_chain(flat = flat, thin =thin, discard = discard)
     lnprobs = backend.get_log_prob(flat = flat,thin =thin, discard = discard)
     return samples,lnprobs
 
 
-def loadSamplesFromDir(dirs,best =True,flat = True, n_per_file = 800, thin = 1, discard = 0, debug = False):
+def loadSamplesFromDir(dirs, best=True, flat=True, n_per_file=800, thin=1, discard=0, debug=False):
     """
-    Load the samples from the directory/s. Loads the samples from all the h5 files in the directory.
-    And returns a concatenated array of the samples and the log probabilities.
+    Load MCMC samples from multiple HDF5 files in directories.
+    
+    This function loads samples from all HDF5 files in the specified directories
+    and concatenates them into a single array. Optionally selects only the best
+    samples from each file.
+    
+    Parameters:
+    -----------
+    dirs : str or list
+        Directory path(s) containing HDF5 files
+    best : bool, default=True
+        Whether to select only the best samples from each file
+    flat : bool, default=True
+        Whether to flatten the samples (combine all walkers)
+    n_per_file : int, default=800
+        Number of best samples to take from each file (if best=True)
+    thin : int, default=1
+        Thinning factor (take every nth sample)
+    discard : int, default=0
+        Number of initial samples to discard
+    debug : bool, default=False
+        Whether to print detailed error information
+    
+    Returns:
+    --------
+    tuple
+        (samples, lnprobs) where:
+        - samples: concatenated array of parameter samples
+        - lnprobs: concatenated array of log probability values
+    
+    Notes:
+    ------
+    If best=True, the function selects the n_per_file samples with the highest
+    log probabilities from each file. This is useful for combining results from
+    multiple MCMC runs while keeping only the most likely parameter sets.
     """
     import os
     samples = []
@@ -485,15 +1076,81 @@ def loadSamplesFromDir(dirs,best =True,flat = True, n_per_file = 800, thin = 1, 
     return samples,lnprobs
 
 
-def getSr(theta, n=25000,nsteps=6000,t_end=110, external_hazard = np.inf,time_step_multiplier =1, npeople =None, parallel = False):
+def getSr(theta, n=25000, nsteps=6000, t_end=110, external_hazard=np.inf, time_step_multiplier=1, npeople=None, parallel=False, step_size=None):
+    """
+    Generate SR model simulation with given parameters.
 
+    This function creates a Saturating Removal model simulation using the provided
+    parameters. It's a convenience wrapper around the SR_lf simulation function.
+
+    Parameters:
+    -----------
+    theta : array-like
+        Model parameters [eta, beta, epsilon, xc]
+    n : int, default=25000
+        Number of individuals to simulate
+    nsteps : int, default=6000
+        Number of time steps for simulation
+    t_end : float, default=110
+        End time for simulation
+    external_hazard : float, default=np.inf
+        External hazard rate
+    time_step_multiplier : int, default=1
+        Multiplier for time step size
+    npeople : int, optional
+        Alternative parameter name for n (for backward compatibility)
+    parallel : bool, default=False
+        Whether to use parallel simulation
+    step_size : float, optional
+        If provided, overrides nsteps and time_step_multiplier to achieve the desired step size.
+
+    Returns:
+    --------
+    object
+        SR model simulation object
+
+    Notes:
+    ------
+    The function uses kappa=0.5 as a fixed parameter. If npeople is provided,
+    it overrides the n parameter.
+
+    If step_size is given, nsteps and time_step_multiplier are ignored and recalculated so that
+    t_end/(nsteps*time_step_multiplier) = step_size. If nsteps*time_step_multiplier <= 6000, time_step_multiplier=1, else
+    increase time_step_multiplier until nsteps <= 6000. Both nsteps and time_step_multiplier are integers.
+    """
     if npeople is not None:
         n = npeople
+
+    if step_size is not None:
+        # Calculate total number of steps needed
+        total_steps = int(np.ceil(t_end / step_size))
+        # Try to keep nsteps <= 6000 by increasing time_step_multiplier
+        nsteps = total_steps
+        time_step_multiplier = 1
+        while nsteps > 6000:
+            time_step_multiplier += 1
+            nsteps = int(np.ceil(total_steps / time_step_multiplier))
+        # Ensure nsteps and time_step_multiplier are at least 1
+        nsteps = max(1, nsteps)
+        time_step_multiplier = max(1, time_step_multiplier)
+
     eta = theta[0]
     beta = theta[1]
     epsilon = theta[2]
     xc = theta[3]
-    sim = srl.SR_lf(eta=eta,beta=beta,epsilon=epsilon,xc=xc,kappa=0.5,npeople=n,nsteps=nsteps,t_end=t_end,external_hazard=external_hazard, time_step_multiplier=time_step_multiplier, parallel=parallel)
+    sim = srl.SR_lf(
+        eta=eta,
+        beta=beta,
+        epsilon=epsilon,
+        xc=xc,
+        kappa=0.5,
+        npeople=n,
+        nsteps=nsteps,
+        t_end=t_end,
+        external_hazard=external_hazard,
+        time_step_multiplier=time_step_multiplier,
+        parallel=parallel
+    )
     return sim
 
 def save_best_thetas(samples,lnprobs,save_path,best_threshold=0.9):
@@ -522,7 +1179,13 @@ def get_params_from_thetas(thetas):
     betas = np.array([theta[BETA] for theta in thetas])
     epsilons = np.array([theta[EPSILON] for theta in thetas] )
     xcs = np.array([theta[XC] for theta in thetas])
-    return etas,betas,epsilons,xcs
+    # INSERT_YOUR_CODE
+    # Handle extra params if theta is longer
+    extras = []
+    if len(thetas[0]) > 4:
+        for i in range(len(thetas[0])-4):
+            extras.append(np.array([theta[4+i] for theta in thetas]))
+    return [etas,betas,epsilons,xcs]+extras
 
 
 def plot_thetas_and_probs(thetas, probs, marked_thetas = None,marked_probs =None, annotations = None, xscale = 'linear',yscale = 'log',threshold = None):
