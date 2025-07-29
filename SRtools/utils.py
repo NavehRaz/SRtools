@@ -120,3 +120,15 @@ def rescaleTheta(theta, s=None, from_unit=None, to_unit=None):
     rescaled_theta[2] *= s
     
     return rescaled_theta
+
+
+def thetaToSeed(theta, filename):
+    """
+    Saves the theta parameters as a seed CSV file.
+
+    The CSV will have columns: Eta, Beta, Epsilon, Xc, and a single row labeled 'Estimate' containing the current theta values.
+    """
+    import pandas as pd
+    df = pd.DataFrame(theta, columns=['Estimate'], index=['Eta', 'Beta', 'Epsilon', 'Xc'])
+    df=df.T
+    df.to_csv(filename)
