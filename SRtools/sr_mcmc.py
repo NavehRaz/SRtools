@@ -774,7 +774,7 @@ def getSampler(nwalkers, num_mcmc_steps, dataSet, seed=None, npeople=10000, nste
     args = [ npeople, nsteps, t_end, dataSet, metric, time_range, time_step_multiplier, prior, dt, set_params,model_func,kwargs]
     # Set the initial positions of the walkers
     if prior_generator is None:
-        pos = [draw_param(bins=bins,log_sapce=draw_params_in_log_space) for i in range(nwalkers)]
+        pos = [draw_param(bins=bins,log_space=draw_params_in_log_space) for i in range(nwalkers)]
     else:
         pos = prior_generator.sample(n_samples=nwalkers,temperature=0.5)
     
