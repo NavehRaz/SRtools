@@ -9,6 +9,7 @@ import os
 import sys
 import warnings
 import ast
+from SRtools import SR_hetro as srh
 
 # Dictionary mapping aliases to actual preset names
 PRESET_ALIASES = {
@@ -335,3 +336,46 @@ def get_config_params(
                 config['time_range'] = traw
 
     return config
+
+
+def getSim(
+    preset_name="humans_M_combined",
+    type="mode_overall",
+    time_unit='auto',
+    config_params=['nsteps', 'time_step_multiplier', 'npeople', 't_end'],
+    theta=None,
+    nsteps=None,
+    npeople=None,
+    t_end=None,
+    time_step_multiplier=None
+):
+    """
+    Returns an srh.SR_Hetro object for the given preset, using the correct theta and configuration parameters.
+    Optionally override theta, nsteps, npeople, t_end, or time_step_multiplier.
+    """
+    # Get theta for the preset unless overridden
+    if theta is None:
+        theta_val = getTheta(preset_name=preset_name, type=type, time_unit=time_unit)
+    else:
+        theta_val = theta
+
+    # Get config parameters for the preset
+    if time_unit == 'auto':
+        config_time_unit = None
+    else:
+        config_time_unit = time_unit
+    config = get_config_params(preset_name=preset_name, time_unit=config_time_unit, config_params=config_params)
+    # Remove 'time_range' from config if present
+    config.pop('time_range', None)
+
+    # Override config values if provided
+    if nsteps is not None:
+        config['nsteps'] = nsteps
+    if npeople is not None:
+        config['npeople'] = npeople
+    if t_end is not None:
+        config['t_end'] = t_end
+    if time_step_multiplier is not None:
+        config['time_step_multiplier'] = time_step_multiplier
+
+    return srh.getSrHetro(theta_val, **config)

@@ -591,7 +591,7 @@ def draw_param(bins, log_space=True):
     """
     bin_index = np.random.randint(0, len(bins[0]))
     try:
-        if log_sapce:
+        if log_space:
             theta = np.array([np.exp(np.random.uniform(np.log(bins[i][bin_index][0]), np.log(bins[i][bin_index][1]))) for i in range(len(bins))])
         else:
             theta = np.array([np.random.uniform(bins[i][bin_index][0], bins[i][bin_index][1]) for i in range(len(bins))])
