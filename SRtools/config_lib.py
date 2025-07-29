@@ -13,8 +13,8 @@ def read_configs(folder_path):
     #make alist of all the .ini files in the folder
     config_files = []
     for file in sorted(os.listdir(folder_path)):
-        if file.endswith('.ini'):
-            config_files.append(os.path.join(folder_path,file))
+        if file.endswith('.ini') and not file.startswith('._'):
+            config_files.append(os.path.join(folder_path, file))
     config = configparser.ConfigParser()
     config.read(config_files)
     #get the latest parameters
