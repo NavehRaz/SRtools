@@ -133,7 +133,7 @@ class PriorGenExtended(PriorGen):
 
 
     @staticmethod
-    def prior_from_posterior_csv_extended(csv_path, seed, variations, ndims,ndims_from_csv =4, transform=True, draw_params_in_log_space = True):
+    def prior_from_posterior_csv_extended(csv_path, seed, variations, n_extra_dims,ndims_from_csv =4, transform=True, draw_params_in_log_space = True):
         """
         This function is used to generate a prior from a posterior csv file.
         The csv file should have columns unique_samples and posterior.
@@ -148,7 +148,7 @@ class PriorGenExtended(PriorGen):
             values = values[:,:ndims_from_csv]
         
         lnprobs = df['posterior'].values
-        return PriorGenExtended(values, lnprobs, seed, variations, ndims, draw_params_in_log_space)
+        return PriorGenExtended(values, lnprobs, seed, variations, n_extra_dims, draw_params_in_log_space)
 
 
 
