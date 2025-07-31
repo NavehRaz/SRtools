@@ -249,7 +249,8 @@ def get_config_params(
     Optionally, you can specify a target time_unit (e.g., 'years', 'days', 'hours', 'generations').
     If time_unit is given and differs from the detected original_time_unit, t_end and time_range will be converted accordingly.
     """
-
+    if time_unit == 'auto':
+        time_unit = None
     # Helper: get conversion factor from original_time_unit to time_unit
     def get_time_unit_conversion_factor(from_unit, to_unit):
         # Define conversion factors to days
@@ -260,6 +261,7 @@ def get_config_params(
             'generations': 3.0/24.0, 
         }
         # If units are the same, factor is 1
+        
         if from_unit == to_unit:
             return 1.0
         # Convert from original to days, then days to target
