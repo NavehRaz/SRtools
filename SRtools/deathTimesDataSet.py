@@ -530,6 +530,19 @@ class Dataset:
         else:
             return np.array(values)
         
+    def timeAtSurvival(self, survival_prob):
+        """
+        This function returns the time at which the survival probability is reached.
+        """
+        # To find the time at which the survival function reaches a given probability, we need to interpolate.
+        # We'll use the survival curve (t, s) and interpolate the time at which s == survival_prob.
+        t, s = self.survival
+        # Ensure s is decreasing, and survival_prob is within the range
+        if survival_prob > s[0] or survival_prob < s[-1]:
+            raise ValueError("survival_prob is outside the range of the survival function.")
+        # Interpolate to find the time at which survival == survival_prob
+        return np.interp(survival_prob, s[::-1], t[::-1])
+        
     def subSetByProperty(self, property, value):
         """
         This function returns a subset of the dataset based on a property.

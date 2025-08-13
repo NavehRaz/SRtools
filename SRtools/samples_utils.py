@@ -305,10 +305,10 @@ class Posterior:
 
         # Determine bins and log for marginalized features
         keep_features = [i for i in range(self.unique_samples.shape[1]) if i not in features]
-        if self.bins is not None:
+        if self.bins is not None and type(self.bins) is not int:
             marginalized_bins = [self.bins[i] for i in keep_features]
         else:
-            marginalized_bins = None
+            marginalized_bins = self.bins
         marginalized_log = [self.log[i] for i in keep_features]
 
         #creat new empty posterior object

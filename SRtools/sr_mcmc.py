@@ -1435,7 +1435,20 @@ def applyThreshold(thetas,lnprobs,ds,metric = 'survival',time_range = None):
     return thetas[lnprobs>threshold],lnprobs[lnprobs>threshold]
     
 
-def custom_corner(samples,lnprobs,labels = ['eta','beta','epsilon','xc','ext h'], truths = None, scale ='log', grid =True,figsize=(15,15),quantiles = [0.16,0.5,0.84], show_color_bar=True):
+def custom_corner(
+    samples,
+    lnprobs,
+    labels=['eta', 'beta', 'epsilon', 'xc', 'ext h'],
+    truths=None,
+    scale='log',
+    grid=True,
+    figsize=(15, 15),
+    quantiles=[0.16, 0.5, 0.84],
+    show_color_bar=True,
+    alpha=0.5,
+    axes=None,
+    cmap='viridis'
+):
     """
     A custom corner plot for the samples.
     Plots the samples and colors them according to the log probabilities.
@@ -1449,32 +1462,52 @@ def custom_corner(samples,lnprobs,labels = ['eta','beta','epsilon','xc','ext h']
     - figsize (tuple): The size of the figure.
     - quantiles (list): The quantiles to plot.
     - show_color_bar (bool): Whether to show the color bar for the log probabilities.
+    - alpha (float): Alpha value for scatter points (default 0.5).
+    - axes (np.ndarray or None): Optionally provide axes to plot on. If None, a new figure and axes are created.
+    - cmap (str or Colormap): Colormap for scatter points (default 'viridis').
     returns:
     - fig: The figure.
     - axes: The axes.
     """
     import matplotlib.pyplot as plt
     ndim = samples.shape[1]
-    fig, axes = plt.subplots(ndim, ndim, figsize=figsize)
-    fig.subplots_adjust(hspace=0.15, wspace=0.15)
 
-    # Create scatter plot for color bar reference
+    # If axes are not provided, create them
+    if axes is None:
+        fig, axes = plt.subplots(ndim, ndim, figsize=figsize)
+        fig.subplots_adjust(hspace=0.15, wspace=0.15)
+        own_fig = True
+    else:
+        fig = axes[0, 0].figure
+        own_fig = False
+
     scatter = None
     for i in range(ndim):
-        for j in range(i+1):
+        for j in range(i + 1):
             ax = axes[i, j]
             if i == j:
                 if scale == 'log':
-                    ax.hist(samples[:, i], bins=np.logspace(np.log10(np.min(samples[:, i])), np.log10(np.max(samples[:, i])), 50), color="k", histtype="step")
+                    ax.hist(
+                        samples[:, i],
+                        bins=np.logspace(np.log10(np.min(samples[:, i])), np.log10(np.max(samples[:, i])), 50),
+                        color="k",
+                        histtype="step"
+                    )
                     ax.set_xscale('log')
                 else:
                     ax.hist(samples[:, i], bins=100, color="k", histtype="step")
                 if truths is not None:
                     ax.axvline(truths[i], color="r")
                 ax.set_yticks([])
-
             else:
-                scatter = ax.scatter(samples[:, j], samples[:, i], c=lnprobs, cmap='viridis', s=1)
+                scatter = ax.scatter(
+                    samples[:, j],
+                    samples[:, i],
+                    c=lnprobs,
+                    cmap=cmap,
+                    s=1,
+                    alpha=alpha
+                )
                 if truths is not None:
                     ax.axvline(truths[j], color="r")
                     ax.axhline(truths[i], color="r")
@@ -1491,7 +1524,7 @@ def custom_corner(samples,lnprobs,labels = ['eta','beta','epsilon','xc','ext h']
                 ax.set_ylabel(labels[i])
             if grid:
                 ax.grid(True)
-        for j in range(i+1, ndim):
+        for j in range(i + 1, ndim):
             axes[i, j].set_visible(False)
 
     for quantile in quantiles:
@@ -1500,7 +1533,10 @@ def custom_corner(samples,lnprobs,labels = ['eta','beta','epsilon','xc','ext h']
 
     # Add color bar if requested
     if show_color_bar and scatter is not None:
-        cbar_ax = fig.add_axes([0.92, 0.15, 0.02, 0.7])
-        fig.colorbar(scatter, cax=cbar_ax, label='Log Probability')
+        if own_fig:
+            cbar_ax = fig.add_axes([0.92, 0.15, 0.02, 0.7])
+            fig.colorbar(scatter, cax=cbar_ax, label='Log Probability')
+        else:
+            fig.colorbar(scatter, ax=axes, label='Log Probability', fraction=0.046, pad=0.04)
 
     return fig, axes
