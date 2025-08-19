@@ -1447,7 +1447,8 @@ def custom_corner(
     show_color_bar=True,
     alpha=0.5,
     axes=None,
-    cmap='viridis'
+    cmap='viridis',
+    truth_color='r'
 ):
     """
     A custom corner plot for the samples.
@@ -1465,11 +1466,13 @@ def custom_corner(
     - alpha (float): Alpha value for scatter points (default 0.5).
     - axes (np.ndarray or None): Optionally provide axes to plot on. If None, a new figure and axes are created.
     - cmap (str or Colormap): Colormap for scatter points (default 'viridis').
+    - truth_color (str or color): Color for the truth lines (default 'r').
     returns:
     - fig: The figure.
     - axes: The axes.
     """
     import matplotlib.pyplot as plt
+    import numpy as np
     ndim = samples.shape[1]
 
     # If axes are not provided, create them
@@ -1497,7 +1500,7 @@ def custom_corner(
                 else:
                     ax.hist(samples[:, i], bins=100, color="k", histtype="step")
                 if truths is not None:
-                    ax.axvline(truths[i], color="r")
+                    ax.axvline(truths[i], color=truth_color)
                 ax.set_yticks([])
             else:
                 scatter = ax.scatter(
@@ -1509,8 +1512,8 @@ def custom_corner(
                     alpha=alpha
                 )
                 if truths is not None:
-                    ax.axvline(truths[j], color="r")
-                    ax.axhline(truths[i], color="r")
+                    ax.axvline(truths[j], color=truth_color)
+                    ax.axhline(truths[i], color=truth_color)
                 if scale == 'log':
                     ax.set_xscale('log')
                     ax.set_yscale('log')
