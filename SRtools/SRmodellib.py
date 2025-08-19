@@ -24,7 +24,7 @@ class SR(dtds.Dataset):
                   npeople, nsteps, t_end, t_start = 0,
                     tscale = 'years', memory_efficient =False, natural_units = True, smoothing = 20,
                       boundary = 'sticking',
-                        save_dist = False , dist_years =np.linspace(0,100,101), dist_method = 'hist', dist_nvalues = 40, y_gamma =None, death_times_method = 1,external_hazard = np.inf, time_step_multiplier = 1, parallel =False,heun=False):
+                        save_dist = False , dist_years =np.linspace(0,100,101), dist_method = 'hist', dist_nvalues = 40, y_gamma =None, death_times_method = 1,external_hazard = np.inf, time_step_multiplier = 1, parallel =False, method='brownian_bridge'):
         """ 
         An instance of SR simulation for SR model dX/dt = eta*t - beta*X/(X+kappa) + sqrt(2*epsilon)*xci.
         Upon creation the model runs (and saves) the trajectories for a number of agents = npeople, running for the number of timesteps defined by 
@@ -45,7 +45,9 @@ class SR(dtds.Dataset):
             natural_units: assumes there is a natural time unit 'U' such as days or years that times are given in (so if U is years and t_end is 120 then the simulation should run to 120 years ) 
                             currently the simulation doesn't care what U is, but returns survival and hazard on a time line that is given by integer values between t_start and t_end (we sample every 1 U)
             smoothing: relevant only if the natural_units = False, then say smoothing = n, the sampling of hazard and survival is going to be every n*dt
-
+            method:  Method to use for death times calculation. Options:
+                - 'brownian_bridge': Euler method with Brownian bridge crossing detection (default)
+                - 'euler': Standard Euler method
 
         """
         if nsteps =='auto':
@@ -74,7 +76,7 @@ class SR(dtds.Dataset):
             self.parallel = parallel
             self.death_times = None
             self.events = None
-            self.heun = heun
+            self.method = method
             if death_times_method == 0:
                 self.trajectories = self.getTrajectories(boundary=boundary)
             else:
@@ -163,12 +165,23 @@ class SR(dtds.Dataset):
         dt = self.t[1]-self.t[0]
         sdt = np.sqrt(dt)
         t = self.t
-        if self.heun:
-            death_times, events =heun_death_times_accelerator(s,dt,t,self.eta,self.beta,self.kappa,self.epsilon,self.xc,sdt,self.npeople,self.external_hazard,self.time_step_multiplier)
-        elif self.parallel:
-            death_times, events =death_times_accelerator2(s,dt,t,self.eta,self.beta,self.kappa,self.epsilon,self.xc,sdt,self.npeople,self.external_hazard,self.time_step_multiplier)
+        
+        if self.method == 'brownian_bridge':
+            if self.parallel:
+                death_times, events = death_times_euler_brownian_bridge_parallel(s, dt, t, self.eta, self.beta, self.kappa, self.epsilon, self.xc, sdt, self.npeople, self.external_hazard, self.time_step_multiplier)
+            else:
+                death_times, events = death_times_euler_brownian_bridge(s, dt, t, self.eta, self.beta, self.kappa, self.epsilon, self.xc, sdt, self.npeople, self.external_hazard, self.time_step_multiplier)
+        elif self.method == 'euler':
+            if self.parallel:
+                death_times, events = death_times_accelerator2(s, dt, t, self.eta, self.beta, self.kappa, self.epsilon, self.xc, sdt, self.npeople, self.external_hazard, self.time_step_multiplier)
+            else:
+                death_times, events = death_times_accelerator(s, dt, t, self.eta, self.beta, self.kappa, self.epsilon, self.xc, sdt, self.npeople, self.external_hazard, self.time_step_multiplier)
         else:
-            death_times, events =death_times_accelerator(s,dt,t,self.eta,self.beta,self.kappa,self.epsilon,self.xc,sdt,self.npeople,self.external_hazard,self.time_step_multiplier)
+            # Default to brownian bridge if method not recognized
+            if self.parallel:
+                death_times, events = death_times_euler_brownian_bridge_parallel(s, dt, t, self.eta, self.beta, self.kappa, self.epsilon, self.xc, sdt, self.npeople, self.external_hazard, self.time_step_multiplier)
+            else:
+                death_times, events = death_times_euler_brownian_bridge(s, dt, t, self.eta, self.beta, self.kappa, self.epsilon, self.xc, sdt, self.npeople, self.external_hazard, self.time_step_multiplier)
 
         return np.array(death_times), np.array(events)
     
@@ -793,38 +806,6 @@ def trajectories_accelerator(noise,xt,s,dt,eta,t,beta,k,sdt,boundary ='sticking'
     return xt
 
 @jit(nopython=jit_nopython)
-def heun_death_times_accelerator(s,dt,t,eta,beta,kappa,epsilon,xc,sdt,npeople,external_hazard = np.inf, time_step_multiplier = 1):
-    #uses the stochastic heun method to calculate the death times of the population
-    death_times = []
-    events = []
-    for l in range(npeople):
-        x=0
-        j=0
-        ndt = dt/time_step_multiplier
-        nsdt = sdt/np.sqrt(time_step_multiplier)
-        chance_to_die_externally = np.exp(-external_hazard)*ndt
-        while j in range(s-1) and x<xc:
-            for i in range(time_step_multiplier):
-                noise = np.sqrt(2*epsilon)*np.random.normal(loc = 0,scale = 1)
-                x_EM = x+ndt*(eta*(t[j]+i*ndt)-beta*x/(x+kappa))+noise*nsdt #the euler maurayama step
-                x_EM = np.maximum(x_EM, 0)
-                x = x+0.5*ndt*((eta*(t[j]+i*ndt)-beta*x/(x+kappa))+(eta*(t[j]+(i+1)*ndt)-beta*x_EM/(x_EM+kappa)))+noise*nsdt
-                x = np.maximum(x, 0)
-                if np.random.uniform(0,1)<chance_to_die_externally:
-                    x = xc
-                if x>=xc:
-                    break
-            j+=1
-        if x>=xc:
-            death_times.append(j*dt)
-            events.append(1)
-        else:
-            death_times.append(j*dt)
-            events.append(0)
-
-    return death_times, events
-
-@jit(nopython=jit_nopython)
 def death_times_accelerator(s,dt,t,eta,beta,kappa,epsilon,xc,sdt,npeople,external_hazard = np.inf, time_step_multiplier = 1):
     death_times = []
     events = []
@@ -853,7 +834,7 @@ def death_times_accelerator(s,dt,t,eta,beta,kappa,epsilon,xc,sdt,npeople,externa
 
     return death_times, events
 
-# @jit(nopython=jit_nopython, parallel=jit_parallel)
+@jit(nopython=jit_nopython)
 def death_times_accelerator2(s,dt,t,eta,beta,kappa,epsilon,xc,sdt,npeople,external_hazard = np.inf,time_step_multiplier = 1):
     @jit(nopython=jit_nopython)
     def calculate_death_times(npeople, s, dt, t, eta, beta, kappa, epsilon, xc, sdt, external_hazard,time_step_multiplier):
@@ -894,7 +875,109 @@ def death_times_accelerator2(s,dt,t,eta,beta,kappa,epsilon,xc,sdt,npeople,extern
     events = [event for sublist in results for event in sublist[1]]
     return death_times, events
 
+# Euler method with Brownian Bridge (without heterogeneity)
+@jit(nopython=jit_nopython)
+def death_times_euler_brownian_bridge(s, dt, t, eta, beta, kappa, epsilon, xc, sdt, npeople,
+                                     external_hazard=np.inf, time_step_multiplier=1):
+    """
+    Euler method with Brownian bridge crossing detection.
+    This method uses the standard Euler scheme but adds Brownian bridge
+    crossing probability tests to detect barrier crossings between time steps.
+    """
+    death_times = []
+    events = []
+    ndt = dt / time_step_multiplier
+    nsdt = sdt / np.sqrt(time_step_multiplier)
+    constant_hazard = np.isfinite(external_hazard)
+    if constant_hazard:
+        chance_to_die_externally = np.exp(-external_hazard) * ndt
+    
+    for person in range(npeople):
+        x = 0.0
+        j = 0
+        crossed = False
+        
+        while j < s - 1 and not crossed:
+            for i in range(time_step_multiplier):
+                current_time = t[j] + i * ndt
+                
+                # Standard Euler step
+                drift = eta * current_time - beta * x / (x + kappa)
+                noise = np.sqrt(2 * epsilon) * np.random.normal()
+                x_new = x + ndt * drift + noise * nsdt
+                x_new = max(x_new, 0.0)
+                
+                # Check external hazard
+                if constant_hazard and np.random.rand() < chance_to_die_externally:
+                    x = xc
+                    crossed = True
+                    break
+                
+                # Direct crossing check
+                if x_new >= xc:
+                    x = x_new
+                    crossed = True
+                    break
+                
+                # Brownian bridge crossing test if not crossed directly
+                if (x < xc) and (x_new < xc):
+                    dx1 = xc - x
+                    dx2 = xc - x_new
+                    if dx1 > 0.0 and dx2 > 0.0:
+                        # Brownian bridge crossing probability
+                        var = 2.0 * epsilon * ndt
+                        if var > 0.0:
+                            p_cross = np.exp(-2.0 * dx1 * dx2 / var)
+                            if np.random.rand() < p_cross:
+                                x = xc
+                                crossed = True
+                                break
+                
+                x = x_new
+            j += 1
+        
+        death_times.append(j * dt)
+        if crossed or x >= xc:
+            events.append(1)
+        else:
+            events.append(0)
+    
+    return death_times, events
 
+# Parallel version of Euler with Brownian Bridge (without heterogeneity)
+def death_times_euler_brownian_bridge_parallel(s, dt, t, eta, beta, kappa, epsilon, xc, sdt, npeople,
+                                              external_hazard=np.inf, time_step_multiplier=1, n_jobs=-1, chunk_size=1000):
+    """
+    Parallel version of death_times_euler_brownian_bridge.
+    Splits npeople into chunks and runs death_times_euler_brownian_bridge on each chunk in parallel.
+    """
+    from joblib import Parallel, delayed
+    import numpy as np
+
+    def worker(npeople_chunk, s, dt, t, eta, beta, kappa, epsilon, xc, sdt, external_hazard, time_step_multiplier):
+        # Call the numba-jitted function for this chunk
+        return death_times_euler_brownian_bridge(
+            s, dt, t, eta, beta, kappa, epsilon, xc, sdt, npeople_chunk,
+            external_hazard, time_step_multiplier
+        )
+
+    # Split npeople into chunks
+    n_chunks = npeople // chunk_size
+    remainder = npeople % chunk_size
+    chunk_sizes = [chunk_size] * n_chunks
+    if remainder > 0:
+        chunk_sizes.append(remainder)
+
+    results = Parallel(n_jobs=n_jobs)(
+        delayed(worker)(
+            n_chunk, s, dt, t, eta, beta, kappa, epsilon, xc, sdt, external_hazard, time_step_multiplier
+        ) for n_chunk in chunk_sizes if n_chunk > 0
+    )
+
+    # Concatenate results
+    death_times = np.concatenate([res[0] for res in results])
+    events = np.concatenate([res[1] for res in results])
+    return death_times, events
 
 @jit(nopython=jit_nopython, parallel=jit_parallel)
 def median_accelerator(medians, tragectories,xc):

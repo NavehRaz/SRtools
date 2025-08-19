@@ -349,7 +349,10 @@ def getSim(
     nsteps=None,
     npeople=None,
     t_end=None,
-    time_step_multiplier=None
+    time_step_multiplier=None,
+    method='brownian_bridge',
+    parallel=False,
+    factor = 1  #DEBUG,DELET
 ):
     """
     Returns an srh.SR_Hetro object for the given preset, using the correct theta and configuration parameters.
@@ -370,6 +373,13 @@ def getSim(
     # Remove 'time_range' from config if present
     config.pop('time_range', None)
 
+    if any(animal in preset_name.lower() for animal in ['cat', 'dog', 'human','denmark','sweden','labrador','staffy','german','jack','ecoli']):
+        config['time_step_multiplier'] = int(config['time_step_multiplier'] * factor)
+        print(f"DEBUG: time_step_multiplier multiplied by {factor} for {preset_name}")
+    else:
+        print(f"DEBUG: time_step_multiplier not multiplied for {preset_name}")
+
+
     # Override config values if provided
     if nsteps is not None:
         config['nsteps'] = nsteps
@@ -380,4 +390,4 @@ def getSim(
     if time_step_multiplier is not None:
         config['time_step_multiplier'] = time_step_multiplier
 
-    return srh.getSrHetro(theta_val, **config)
+    return srh.getSrHetro(theta_val, method=method, parallel=parallel, **config)

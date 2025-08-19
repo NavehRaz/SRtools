@@ -1076,7 +1076,7 @@ def loadSamplesFromDir(dirs, best=True, flat=True, n_per_file=800, thin=1, disca
     return samples,lnprobs
 
 
-def getSr(theta, n=25000, nsteps=6000, t_end=110, external_hazard=np.inf, time_step_multiplier=1, npeople=None, parallel=False, step_size=None):
+def getSr(theta, n=25000, nsteps=6000, t_end=110, external_hazard=np.inf, time_step_multiplier=1, npeople=None, parallel=False, step_size=None, method='brownian_bridge'):
     """
     Generate SR model simulation with given parameters.
 
@@ -1103,6 +1103,10 @@ def getSr(theta, n=25000, nsteps=6000, t_end=110, external_hazard=np.inf, time_s
         Whether to use parallel simulation
     step_size : float, optional
         If provided, overrides nsteps and time_step_multiplier to achieve the desired step size.
+    method : str, default='brownian_bridge'
+        Method to use for death times calculation. Options:
+        - 'brownian_bridge': Euler method with Brownian bridge crossing detection (default)
+        - 'euler': Standard Euler method
 
     Returns:
     --------
@@ -1149,7 +1153,8 @@ def getSr(theta, n=25000, nsteps=6000, t_end=110, external_hazard=np.inf, time_s
         t_end=t_end,
         external_hazard=external_hazard,
         time_step_multiplier=time_step_multiplier,
-        parallel=parallel
+        parallel=parallel,
+        method=method
     )
     return sim
 

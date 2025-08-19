@@ -10,15 +10,16 @@ from SRtools import SRmodellib as sr
 
 
 class SR_lf(sr.SR):
-    def __init__(self, eta, beta, kappa, epsilon, xc,
-                  npeople, nsteps, t_end, t_start = 0,
-                    tscale = 'years',external_hazard=np.inf,time_step_multiplier=1, parallel =False, bandwidth=3,heun=False):
+    def __init__(self, eta=1, beta=1, kappa=1, epsilon=1, xc=1,
+                  npeople=5000, nsteps=5000, t_end=115, t_start = 0,
+                    tscale = 'years',external_hazard=np.inf,time_step_multiplier=1, parallel =False, bandwidth=3, method='brownian_bridge'):
         self.bandwidth = bandwidth
+        self.method = method
         super().__init__(eta, beta, kappa, epsilon, xc,
                   npeople, nsteps, t_end, t_start = 0,
                     tscale = 'years', memory_efficient =False, natural_units = True, smoothing = 20,
                       boundary = 'sticking',
-                        save_dist = False , dist_years =np.linspace(0,100,101), dist_method = 'hist', dist_nvalues = 40, y_gamma =None, death_times_method = 2, external_hazard=external_hazard, time_step_multiplier = time_step_multiplier, parallel=parallel, heun=heun)
+                        save_dist = False , dist_years =np.linspace(0,100,101), dist_method = 'hist', dist_nvalues = 40, y_gamma =None, death_times_method = 2, external_hazard=external_hazard, time_step_multiplier = time_step_multiplier, parallel=parallel, method=method)
         
     
     def calc_survival_and_hazard(self, death_times_method=2):
@@ -98,20 +99,25 @@ class SR_lf(sr.SR):
 class SR_lf_karin_human(SR_lf):
     def __init__(self, eta=1, beta=1, kappa=1, epsilon=1, xc=1,
                   npeople=5000, nsteps=5000, t_end=115, t_start = 0,
-                    tscale = 'years',bandwidth=3,external_hazard=np.inf, time_step_multiplier=1, parallel =False, heun=False):
+                    tscale = 'years',bandwidth=3,external_hazard=np.inf, time_step_multiplier=1, parallel =False, method='brownian_bridge'):
         karin_vals = [0.49275,54.75,0.5,51.83,17]
         super().__init__(eta*karin_vals[0], beta*karin_vals[1], kappa*karin_vals[2], epsilon*karin_vals[3], xc*karin_vals[4],
                   npeople, nsteps, t_end, t_start = 0,
-                    tscale = 'years',bandwidth=bandwidth,external_hazard=external_hazard, time_step_multiplier=time_step_multiplier, parallel=parallel, heun=heun)
+                    tscale = 'years',bandwidth=bandwidth,external_hazard=external_hazard, time_step_multiplier=time_step_multiplier, parallel=parallel, method=method)
         
 
-def getSr(theta, n=25000, nsteps=4500, t_end=110, external_hazard=np.inf, time_step_multiplier=1, parallel=False, step_size=None):
+def getSr(theta, n=25000, nsteps=4500, t_end=110, external_hazard=np.inf, time_step_multiplier=1, parallel=False, step_size=None, method='brownian_bridge'):
     """
     Generate SR model simulation with given parameters.
 
     Optionally specify step_size. If step_size is given, nsteps and time_step_multiplier are ignored and recalculated so that
     t_end/(nsteps*time_step_multiplier) = step_size. If nsteps*time_step_multiplier <= 6000, time_step_multiplier=1, else
     increase time_step_multiplier until nsteps <= 6000. Both nsteps and time_step_multiplier are integers.
+    
+    Parameters:
+        method (str): Method to use for death times calculation. Options:
+            - 'brownian_bridge': Euler method with Brownian bridge crossing detection (default)
+            - 'euler': Standard Euler method
     """
     if step_size is not None:
         # Calculate total number of steps needed
@@ -141,6 +147,7 @@ def getSr(theta, n=25000, nsteps=4500, t_end=110, external_hazard=np.inf, time_s
         t_end=t_end,
         external_hazard=external_hazard,
         time_step_multiplier=time_step_multiplier,
-        parallel=parallel
+        parallel=parallel,
+        method=method
     )
     return sim
