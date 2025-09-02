@@ -374,7 +374,55 @@ class Dataset:
         else:
             raise ValueError('method should be either IQR or AMS')
         
-    
+    def remaining_lifetime_at_age(self, age, types='median'):
+        """
+        For individuals who survived to the given age, calculate statistics of their remaining lifespans.
+
+        Parameters:
+            age (float): The age at which to calculate remaining lifetimes.
+            types (str or list): Which statistics to return. Options:
+                - 'median': median of remaining lifespans
+                - 'mean': mean of remaining lifespans
+                - 'std': standard deviation of remaining lifespans
+                - 'distribution': histogram of remaining lifespans (returns (hist, bin_edges))
+                - list of any combination, e.g. ['median', 'mean', 'std']
+
+        Returns:
+            If types is a string, returns the corresponding value.
+            If types is a list, returns a dict with keys from types.
+        """
+        # Get all death times that survived to at least 'age'
+        death_times = np.array(self.death_times)
+        remaining = death_times[death_times >= age] - age
+
+        # If no one survived to this age, return None or np.nan
+        if len(remaining) == 0:
+            if isinstance(types, str):
+                return np.nan
+            else:
+                return {t: np.nan for t in (types if isinstance(types, list) else [types])}
+
+        # Helper to compute each stat
+        def compute(stat):
+            if stat == 'median':
+                return np.median(remaining)
+            elif stat == 'mean':
+                return np.mean(remaining)
+            elif stat == 'std':
+                return np.std(remaining)
+            elif stat == 'distribution':
+                # Return histogram and bin edges
+                hist, bin_edges = np.histogram(remaining, bins='auto', density=True)
+                return (hist, bin_edges)
+            else:
+                raise ValueError(f"Unknown type '{stat}' for remainingLifetimeAtAge")
+
+        if isinstance(types, str):
+            return compute(types)
+        else:
+            # Assume iterable/list
+            return {stat: compute(stat) for stat in types}
+
     def plotHazard(self, ax=None, **kwargs):
         """
         Plots the hazard function.

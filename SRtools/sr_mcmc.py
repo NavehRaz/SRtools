@@ -490,7 +490,7 @@ def lnprior(theta, prior):
 
 
 def lnprob(theta, n, nsteps, t_end, dataSet, metric='survival', time_range=None, 
-           time_step_multiplier=1, prior=None, dt=1, set_params=None, model_func=model, kwargs=None):
+           time_step_multiplier=1, prior=None, dt=1, set_params=None, model_func=model, log_samples=False, kwargs=None):
     """
     Calculate log-posterior for MCMC sampling.
     
@@ -539,23 +539,33 @@ def lnprob(theta, n, nsteps, t_end, dataSet, metric='survival', time_range=None,
     """
     if set_params is None:
         set_params = {}
+    
+    # If log_samples is True, exponentiate theta before processing
+    if log_samples:
+        theta = np.exp(theta)
+    
     lp = lnprior(theta, prior)
     if not np.isfinite(lp):
         return -np.inf
     return lp + lnlike(theta , n, nsteps, t_end, dataSet=dataSet, metric=metric, time_range=time_range, time_step_multiplier = time_step_multiplier, dt=dt,model_func=model_func, set_params=set_params, kwargs=kwargs)
 
-def lnprobTransformed(theta_trans , n, nsteps, t_end, dataSet, metric = 'survival', time_range=None, time_step_multiplier = 1,prior = None, dt=1, set_params=None,model_func=model, kwargs=None):
+def lnprobTransformed(theta_trans , n, nsteps, t_end, dataSet, metric = 'survival', time_range=None, time_step_multiplier = 1,prior = None, dt=1, set_params=None,model_func=model, log_samples=False, kwargs=None):
     """
     The posterior function for the MCMC sampler.
     """
     if set_params is None:
         set_params = {}
+    
+    # If log_samples is True, exponentiate theta_trans before processing
+    if log_samples:
+        theta_trans = np.exp(theta_trans)
+    
     lp = lnprior(theta_trans, prior)
     if not np.isfinite(lp):
         return -np.inf
     return lp + lnlikeTransformed(theta_trans , n, nsteps, t_end, dataSet=dataSet, metric=metric, time_range=time_range, time_step_multiplier = time_step_multiplier, dt=dt, set_params=set_params,model_func=model_func, kwargs=kwargs)
 
-def draw_param(bins, log_space=True):
+def draw_param(bins, log_space=True, log_samples=False):
     """
     Draw random parameters from specified bins.
     
@@ -595,6 +605,11 @@ def draw_param(bins, log_space=True):
             theta = np.array([np.exp(np.random.uniform(np.log(bins[i][bin_index][0]), np.log(bins[i][bin_index][1]))) for i in range(len(bins))])
         else:
             theta = np.array([np.random.uniform(bins[i][bin_index][0], bins[i][bin_index][1]) for i in range(len(bins))])
+        
+        # If log_samples is True, log the drawn parameters
+        if log_samples:
+            theta = np.log(theta)
+            
     except Exception as e:
         print("Exception occurred in draw_param. bins:", bins)
         raise
@@ -636,7 +651,8 @@ def get_bins_from_seed(seed, ndims=4, variations=[0.7, 1.3]):
 def getSampler(nwalkers, num_mcmc_steps, dataSet, seed=None, npeople=10000, nsteps=5000, t_end=None, ndim=4,
                bins=None, variations=[0.7, 1.3], draw_params_in_log_space=True, prior_generator=None,
                back_end_file=None, metric='baysian', time_range=None, time_step_multiplier=1, prior=None, 
-               restartFromBackEnd=False, progress=False, transformed=False, dt=1, set_params=None, model_func=model, **kwargs):
+               restartFromBackEnd=False, progress=False, transformed=False, dt=1, set_params=None, model_func=model, 
+               log_samples=False, **kwargs):
     """
     Create and run MCMC sampler for SR model parameter estimation.
     
@@ -697,6 +713,8 @@ def getSampler(nwalkers, num_mcmc_steps, dataSet, seed=None, npeople=10000, nste
         Dictionary of fixed parameters
     model_func : callable, default=model
         Function to evaluate model
+    log_samples : bool, default=False
+        If True, log the initial sample values and exponentiate theta in lnprob/lnprobTransformed
     **kwargs : dict
         Additional keyword arguments (for backward compatibility)
     
@@ -771,10 +789,10 @@ def getSampler(nwalkers, num_mcmc_steps, dataSet, seed=None, npeople=10000, nste
 
     
 
-    args = [ npeople, nsteps, t_end, dataSet, metric, time_range, time_step_multiplier, prior, dt, set_params,model_func,kwargs]
+    args = [ npeople, nsteps, t_end, dataSet, metric, time_range, time_step_multiplier, prior, dt, set_params,model_func,log_samples,kwargs]
     # Set the initial positions of the walkers
     if prior_generator is None:
-        pos = [draw_param(bins=bins,log_space=draw_params_in_log_space) for i in range(nwalkers)]
+        pos = [draw_param(bins=bins,log_space=draw_params_in_log_space, log_samples=log_samples) for i in range(nwalkers)]
     else:
         pos = prior_generator.sample(n_samples=nwalkers,temperature=0.5)
     
@@ -806,7 +824,7 @@ def getSamplerAutoCorrMon(nwalkers, num_mcmc_steps, dataSet, seed=None, npeople=
                           bins=None, variations=[0.7, 1.3], draw_params_in_log_space=True,
                           back_end_file=None, metric='baysian', time_range=None, time_step_multiplier=1, prior=None,
                           restartFromBackEnd=False, progress=False, plot_correlations=False, transformed=False, dt=1,
-                          set_params=None, model_func=model, **kwargs):
+                          set_params=None, model_func=model, log_samples=False, **kwargs):
     """
     Create and run MCMC sampler with autocorrelation monitoring.
     
@@ -862,6 +880,8 @@ def getSamplerAutoCorrMon(nwalkers, num_mcmc_steps, dataSet, seed=None, npeople=
         Dictionary of fixed parameters
     model_func : callable, default=model
         Function to evaluate model
+    log_samples : bool, default=False
+        If True, log the initial sample values and exponentiate theta in lnprob/lnprobTransformed
     **kwargs : dict
         Additional keyword arguments (for backward compatibility)
     
@@ -922,8 +942,8 @@ def getSamplerAutoCorrMon(nwalkers, num_mcmc_steps, dataSet, seed=None, npeople=
             elif type(p) is float or type(p) is int:
                 prior[i] = [np.min(bins[i]) / p, np.max(bins[i]) * p]
 
-    args = [npeople, nsteps, t_end, dataSet, metric, time_range, time_step_multiplier, prior, dt, set_params, model_func, kwargs]
-    pos = [draw_param(bins=bins, log_sapce=draw_params_in_log_space) for i in range(nwalkers)]
+    args = [npeople, nsteps, t_end, dataSet, metric, time_range, time_step_multiplier, prior, dt, set_params, model_func, log_samples, kwargs]
+    pos = [draw_param(bins=bins, log_space=draw_params_in_log_space, log_samples=log_samples) for i in range(nwalkers)]
 
     if transformed:
         lp = lnprobTransformed
