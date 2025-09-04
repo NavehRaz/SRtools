@@ -79,6 +79,20 @@ def config_to_dict(config, mcmc_convert=True, custom_keys=None):
 
     return config_dict
 
+def _is_thumbnail_file(filename):
+    """
+    Check if a file is a thumbnail file that should be ignored.
+    """
+    thumbnail_patterns = [
+        'Thumbs.db',
+        '.DS_Store',
+        '._',
+        'thumb',
+        'thumbnail'
+    ]
+    filename_lower = filename.lower()
+    return any(pattern.lower() in filename_lower for pattern in thumbnail_patterns)
+
 def add_submition_folder(config, folder, path):
     """
     Add the submission folder to the config file in a new section.
@@ -95,7 +109,10 @@ def add_submition_folder(config, folder, path):
     config['DEFAULT']['index'] = str(index + 1)
     #If path is a folder then it should contain a single config file, otherwise it should be the path to the config file
     if os.path.isdir(path):
-        path = os.path.join(path, os.listdir(path)[0])
+        files = [f for f in os.listdir(path) if not _is_thumbnail_file(f)]
+        if not files:
+            raise ValueError(f"No valid files found in {path}")
+        path = os.path.join(path, files[0])
     with open(path, 'w') as configfile:
         config.write(configfile)
 
