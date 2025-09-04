@@ -344,7 +344,7 @@ def getSim(
     preset_name="humans_M_combined",
     type="mode_overall",
     time_unit='auto',
-    config_params=['nsteps', 'time_step_multiplier', 'npeople', 't_end'],
+    config_params=['nsteps', 'time_step_multiplier', 'npeople', 't_end', 'hetro'],
     theta=None,
     nsteps=None,
     npeople=None,
@@ -352,7 +352,6 @@ def getSim(
     time_step_multiplier=None,
     method='brownian_bridge',
     parallel=False,
-    factor = 1  #DEBUG,DELET
 ):
     """
     Returns an srh.SR_Hetro object for the given preset, using the correct theta and configuration parameters.
@@ -370,14 +369,12 @@ def getSim(
     else:
         config_time_unit = time_unit
     config = get_config_params(preset_name=preset_name, time_unit=config_time_unit, config_params=config_params)
+    if config['hetro'] is None:
+        config['hetro'] = False
     # Remove 'time_range' from config if present
     config.pop('time_range', None)
 
-    if any(animal in preset_name.lower() for animal in ['cat', 'dog', 'human','denmark','sweden','labrador','staffy','german','jack','ecoli']):
-        config['time_step_multiplier'] = int(config['time_step_multiplier'] * factor)
-        print(f"DEBUG: time_step_multiplier multiplied by {factor} for {preset_name}")
-    else:
-        print(f"DEBUG: time_step_multiplier not multiplied for {preset_name}")
+
 
 
     # Override config values if provided
