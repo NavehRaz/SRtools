@@ -1568,3 +1568,300 @@ def custom_corner(
             fig.colorbar(scatter, ax=axes, label='Log Probability', fraction=0.046, pad=0.04)
 
     return fig, axes
+
+
+def grid_search(theta, npeople, nsteps, t_end, dataSet, metric='survival', time_range=None, 
+                time_step_multiplier=1, prior=None, dt=1, set_params=None, model_func=model, 
+                log_samples=False, kwargs=None, max_magnitude=1.1, max_tries=5, n_iterations=10, transformed=False, verbose=True, progress=False):
+    """
+    Perform grid search optimization around a given theta point.
+    
+    This method explores parameter space by taking steps in all directions around
+    the initial theta point. It supports all the same options as getSampler for
+    consistent likelihood evaluation.
+    
+    Parameters:
+    -----------
+    theta : array-like
+        Initial parameter values to search around
+    npeople : int
+        Number of people to simulate
+    nsteps : int
+        Number of simulation steps
+    t_end : float
+        End time for simulation
+    dataSet : array-like
+        Observed data for likelihood calculation
+    metric : str, optional
+        Likelihood metric ('survival' or 'bayesian'), default 'survival'
+    time_range : array-like, optional
+        Time range for likelihood calculation
+    time_step_multiplier : int, optional
+        Multiplier for time steps, default 1
+    prior : array-like, optional
+        Prior bounds for parameters
+    dt : float, optional
+        Time step size, default 1
+    set_params : dict, optional
+        Fixed parameters dictionary
+    model_func : callable, optional
+        Model function to use, default is model
+    log_samples : bool, optional
+        Whether parameters are in log space, default False
+    kwargs : dict, optional
+        Additional keyword arguments for model function
+    max_magnitude : float, optional
+        Maximum fold difference in parameter values, default 1.1
+    max_tries : int, optional
+        Maximum number of random attempts when no improvement found, default 5
+    n_iterations : int, optional
+        Number of grid search iterations, default 10
+    transformed : bool, optional
+        Whether theta is in transformed space (log space), default False
+    verbose : bool, optional
+        Whether to print progress information, default True
+    progress : bool, optional
+        Whether to show progress bar, default False
+        
+    Returns:
+    --------
+    dict
+        Dictionary containing:
+        - 'theta_best': Best parameter values found
+        - 'likelihood_best': Best likelihood value
+        - 'convergence_history': List of likelihood values during search
+        - 'iterations_completed': Number of iterations completed
+        - 'improvements_found': Number of improvements found
+        - 'all_thetas_tested': Array of all parameter combinations tested
+        - 'all_likelihoods': Array of corresponding likelihood values
+    """
+    if set_params is None:
+        set_params = {}
+    if kwargs is None:
+        kwargs = {}
+    
+    # Import tqdm for progress bar if needed
+    if progress:
+        try:
+            from tqdm import tqdm
+        except ImportError:
+            if verbose:
+                print("Warning: tqdm not available. Progress bar disabled.")
+            progress = False
+        
+    # Convert theta to numpy array
+    theta = np.array(theta)
+    n_params = len(theta)
+    
+    # Initialize best values
+    theta_best = theta.copy()
+    
+    # Calculate initial likelihood
+    if transformed:
+        # Use lnprobTransformed for transformed parameters
+        likelihood_best = lnprobTransformed(theta, npeople, nsteps, t_end, dataSet=dataSet,
+                                          metric=metric, time_range=time_range,
+                                          time_step_multiplier=time_step_multiplier, prior=prior, dt=dt,
+                                          set_params=set_params, model_func=model_func, 
+                                          log_samples=log_samples, kwargs=kwargs)
+    else:
+        # Use lnprob for regular parameters
+        likelihood_best = lnprob(theta, npeople, nsteps, t_end, dataSet=dataSet,
+                                metric=metric, time_range=time_range,
+                                time_step_multiplier=time_step_multiplier, prior=prior, dt=dt,
+                                set_params=set_params, model_func=model_func, 
+                                log_samples=log_samples, kwargs=kwargs)
+    
+    convergence_history = [likelihood_best]
+    improvements_found = 0
+    
+    # Store all tested thetas and their likelihoods
+    all_thetas_tested = [theta_best.copy()]
+    all_likelihoods = [likelihood_best]
+    
+    if verbose:
+        print(f"Starting grid search with initial likelihood: {likelihood_best:.6f}")
+    
+    # Create progress bar if requested
+    if progress:
+        iteration_range = tqdm(range(n_iterations), desc="Grid Search", unit="iter")
+    else:
+        iteration_range = range(n_iterations)
+    
+    for iteration in iteration_range:
+        if verbose and not progress:
+            print(f"Iteration {iteration + 1}/{n_iterations}")
+        
+        # Generate all possible directions (3^n_params - 1, excluding the zero vector)
+        # Each dimension can be -1, 0, or 1; skip the all-zeros direction
+        from itertools import product
+        directions = []
+        for direction_tuple in product([-1, 0, 1], repeat=n_params):
+            if all(x == 0 for x in direction_tuple):
+                continue  # skip the zero vector
+            directions.append(np.array(direction_tuple))
+        
+        # Try each direction with max_magnitude step
+        improved = False
+        best_direction_likelihood = likelihood_best
+        best_direction_theta = theta_best.copy()
+        
+        for direction in directions:
+            # Calculate new theta by applying fold change to each parameter
+            theta_new = theta_best.copy()
+            
+            for i in range(n_params):
+                if direction[i] > 0:
+                    # Increase parameter by max_magnitude fold
+                    if log_samples:
+                        # In log space, add the log of the fold change
+                        theta_new[i] = theta_best[i] + np.log(max_magnitude)
+                    else:
+                        # In linear or transformed space, multiply by the fold change
+                        theta_new[i] = theta_best[i] * max_magnitude
+                else:
+                    # Decrease parameter by max_magnitude fold
+                    if log_samples:
+                        # In log space, subtract the log of the fold change
+                        theta_new[i] = theta_best[i] - np.log(max_magnitude)
+                    else:
+                        # In linear or transformed space, divide by the fold change
+                        theta_new[i] = theta_best[i] / max_magnitude
+            
+            # Calculate likelihood for new theta
+            try:
+                if transformed:
+                    # Use lnprobTransformed for transformed parameters
+                    likelihood_new = lnprobTransformed(theta_new, npeople, nsteps, t_end, dataSet=dataSet,
+                                                    metric=metric, time_range=time_range,
+                                                    time_step_multiplier=time_step_multiplier, prior=prior, dt=dt,
+                                                    set_params=set_params, model_func=model_func, 
+                                                    log_samples=log_samples, kwargs=kwargs)
+                else:
+                    # Use lnprob for regular parameters
+                    likelihood_new = lnprob(theta_new, npeople, nsteps, t_end, dataSet=dataSet,
+                                          metric=metric, time_range=time_range,
+                                          time_step_multiplier=time_step_multiplier, prior=prior, dt=dt,
+                                          set_params=set_params, model_func=model_func, 
+                                          log_samples=log_samples, kwargs=kwargs)
+                
+                # Store all tested thetas and likelihoods
+                all_thetas_tested.append(theta_new.copy())
+                all_likelihoods.append(likelihood_new)
+                
+                if likelihood_new > best_direction_likelihood:
+                    best_direction_likelihood = likelihood_new
+                    best_direction_theta = theta_new.copy()
+                    improved = True
+                    
+            except (ValueError, RuntimeError):
+                # Skip invalid parameter combinations
+                continue
+        
+        # If we found an improvement, use it
+        if improved:
+            theta_best = best_direction_theta.copy()
+            likelihood_best = best_direction_likelihood
+            convergence_history.append(likelihood_best)
+            improvements_found += 1
+            if verbose:
+                print(f"  Improvement found! New likelihood: {likelihood_best:.6f}")
+            if progress:
+                iteration_range.set_postfix({
+                    'likelihood': f'{likelihood_best:.6f}',
+                    'improvements': improvements_found
+                })
+        else:
+            # No improvement found in this iteration
+            if verbose:
+                print(f"  No improvement found in iteration {iteration + 1}")
+            
+            # Try random directions up to max_tries times
+            for try_num in range(max_tries):
+                # Generate random direction (1 or -1 for each parameter)
+                random_direction = np.random.choice([-1, 1], size=n_params)
+                
+                # Random magnitude between 1.0 and max_magnitude
+                random_magnitude = np.random.uniform(1.0, max_magnitude)
+                
+                # Calculate new theta by applying random fold change to each parameter
+                theta_new = theta_best.copy()
+                
+                for i in range(n_params):
+                    if random_direction[i] > 0:
+                        # Increase parameter by random_magnitude fold
+                        if log_samples:
+                            # In log space, add the log of the fold change
+                            theta_new[i] = theta_best[i] + np.log(random_magnitude)
+                        else:
+                            # In linear or transformed space, multiply by the fold change
+                            theta_new[i] = theta_best[i] * random_magnitude
+                    else:
+                        # Decrease parameter by random_magnitude fold
+                        if log_samples:
+                            # In log space, subtract the log of the fold change
+                            theta_new[i] = theta_best[i] - np.log(random_magnitude)
+                        else:
+                            # In linear or transformed space, divide by the fold change
+                            theta_new[i] = theta_best[i] / random_magnitude
+                
+                # Calculate likelihood for new theta
+                try:
+                    if transformed:
+                        # Use lnprobTransformed for transformed parameters
+                        likelihood_new = lnprobTransformed(theta_new, npeople, nsteps, t_end, dataSet=dataSet,
+                                                        metric=metric, time_range=time_range,
+                                                        time_step_multiplier=time_step_multiplier, prior=prior, dt=dt,
+                                                        set_params=set_params, model_func=model_func, 
+                                                        log_samples=log_samples, kwargs=kwargs)
+                    else:
+                        # Use lnprob for regular parameters
+                        likelihood_new = lnprob(theta_new, npeople, nsteps, t_end, dataSet=dataSet,
+                                              metric=metric, time_range=time_range,
+                                              time_step_multiplier=time_step_multiplier, prior=prior, dt=dt,
+                                              set_params=set_params, model_func=model_func, 
+                                              log_samples=log_samples, kwargs=kwargs)
+                    
+                    # Store all tested thetas and likelihoods
+                    all_thetas_tested.append(theta_new.copy())
+                    all_likelihoods.append(likelihood_new)
+                    
+                    if likelihood_new > likelihood_best:
+                        theta_best = theta_new.copy()
+                        likelihood_best = likelihood_new
+                        convergence_history.append(likelihood_best)
+                        improvements_found += 1
+                        if verbose:
+                            print(f"  Random improvement found! New likelihood: {likelihood_best:.6f}")
+                        if progress:
+                            iteration_range.set_postfix({
+                                'likelihood': f'{likelihood_best:.6f}',
+                                'improvements': improvements_found
+                            })
+                        break
+                        
+                except (ValueError, RuntimeError):
+                    # Skip invalid parameter combinations
+                    continue
+            else:
+                # No improvement found in random tries either
+                if verbose:
+                    print(f"  No improvement found in {max_tries} random attempts")
+    
+    # Close progress bar if it was used
+    if progress:
+        iteration_range.close()
+    
+    if verbose:
+        print(f"Grid search completed. Final likelihood: {likelihood_best:.6f}")
+        print(f"Total improvements found: {improvements_found}")
+    
+    return {
+        'theta_best': theta_best,
+        'likelihood_best': likelihood_best,
+        'convergence_history': convergence_history,
+        'iterations_completed': n_iterations,
+        'improvements_found': improvements_found,
+        'all_thetas_tested': np.array(all_thetas_tested),
+        'all_likelihoods': np.array(all_likelihoods)
+    }

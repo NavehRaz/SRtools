@@ -132,3 +132,37 @@ def thetaToSeed(theta, filename):
     df = pd.DataFrame(theta, columns=['Estimate'], index=['Eta', 'Beta', 'Epsilon', 'Xc'])
     df=df.T
     df.to_csv(filename)
+
+def param_to_index(param_name):
+    """
+    Converts a parameter name to an index.
+    """
+    if param_name == 'eta':
+        return 0
+    elif param_name == 'beta':
+        return 1
+    elif param_name == 'epsilon':
+        return 2
+    elif param_name == 'xc':
+        return 3
+    elif param_name == 'external_hazard':
+        return 4
+    else:
+        raise ValueError(f"Unknown parameter name: {param_name}")
+    
+def index_to_param(index):
+    """
+    Converts an index to a parameter name.
+    """
+    if index == 0:
+        return 'eta'
+    elif index == 1:
+        return 'beta'
+    elif index == 2:
+        return 'epsilon'
+    elif index == 3:
+        return 'xc'
+    elif index == 4:
+        return 'external_hazard'
+    else:
+        raise ValueError(f"Unknown index: {index}")
