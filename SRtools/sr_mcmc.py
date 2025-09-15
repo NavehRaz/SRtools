@@ -238,7 +238,7 @@ def model(theta, n, nsteps, t_end, dataSet, sim=None, metric='baysian', time_ran
 
 
 def lnlike(theta, n, nsteps, t_end, dataSet, metric='baysian', time_range=None, 
-           time_step_multiplier=1, sim=None, dt=1, set_params=None, model_func=model, kwargs=None):
+           time_step_multiplier=1, sim=None, dt=1, set_params=None, model_func=model, parallel=False, kwargs=None):
     """
     Calculate log-likelihood for MCMC sampling.
     
@@ -288,13 +288,13 @@ def lnlike(theta, n, nsteps, t_end, dataSet, metric='baysian', time_range=None,
     if set_params is None:
         set_params = {}
     
-    LnLike = model_func(theta, n, nsteps, t_end, dataSet,sim=sim, metric=metric, time_range=time_range, time_step_multiplier = time_step_multiplier, dt=dt, set_params=set_params, kwargs=kwargs)
+    LnLike = model_func(theta, n, nsteps, t_end, dataSet,sim=sim, metric=metric, time_range=time_range, time_step_multiplier = time_step_multiplier, dt=dt, set_params=set_params, parallel=parallel, kwargs=kwargs)
     if metric =='survival':
         LnLike =1/LnLike
     return LnLike
 
 def lnlikeTransformed(theta_trans, n, nsteps, t_end, dataSet, metric='baysian', time_range=None, 
-                      time_step_multiplier=1, sim=None, dt=1, set_params=None, model_func=model, kwargs=None):
+                      time_step_multiplier=1, sim=None, dt=1, set_params=None, model_func=model, parallel=False, kwargs=None):
     """
     Calculate log-likelihood for transformed parameters in MCMC sampling.
     
@@ -345,7 +345,7 @@ def lnlikeTransformed(theta_trans, n, nsteps, t_end, dataSet, metric='baysian', 
         set_params = {}
     theta = inv_transform(theta_trans, set_params)
     
-    LnLike = model_func(theta, n, nsteps, t_end, dataSet,sim=sim, metric=metric, time_range=time_range, time_step_multiplier = time_step_multiplier, dt=dt, set_params=set_params, kwargs=kwargs)
+    LnLike = model_func(theta, n, nsteps, t_end, dataSet,sim=sim, metric=metric, time_range=time_range, time_step_multiplier = time_step_multiplier, dt=dt, set_params=set_params, parallel=parallel, kwargs=kwargs)
     if metric =='survival':
         LnLike =1/LnLike
     return LnLike
@@ -490,7 +490,7 @@ def lnprior(theta, prior):
 
 
 def lnprob(theta, n, nsteps, t_end, dataSet, metric='survival', time_range=None, 
-           time_step_multiplier=1, prior=None, dt=1, set_params=None, model_func=model, log_samples=False, kwargs=None):
+           time_step_multiplier=1, prior=None, dt=1, set_params=None, model_func=model, log_samples=False, parallel=False, kwargs=None):
     """
     Calculate log-posterior for MCMC sampling.
     
@@ -547,9 +547,9 @@ def lnprob(theta, n, nsteps, t_end, dataSet, metric='survival', time_range=None,
     lp = lnprior(theta, prior)
     if not np.isfinite(lp):
         return -np.inf
-    return lp + lnlike(theta , n, nsteps, t_end, dataSet=dataSet, metric=metric, time_range=time_range, time_step_multiplier = time_step_multiplier, dt=dt,model_func=model_func, set_params=set_params, kwargs=kwargs)
+    return lp + lnlike(theta , n, nsteps, t_end, dataSet=dataSet, metric=metric, time_range=time_range, time_step_multiplier = time_step_multiplier, dt=dt,model_func=model_func, set_params=set_params, parallel=parallel, kwargs=kwargs)
 
-def lnprobTransformed(theta_trans , n, nsteps, t_end, dataSet, metric = 'survival', time_range=None, time_step_multiplier = 1,prior = None, dt=1, set_params=None,model_func=model, log_samples=False, kwargs=None):
+def lnprobTransformed(theta_trans , n, nsteps, t_end, dataSet, metric = 'survival', time_range=None, time_step_multiplier = 1,prior = None, dt=1, set_params=None,model_func=model, log_samples=False, parallel=False, kwargs=None):
     """
     The posterior function for the MCMC sampler.
     """
@@ -563,7 +563,7 @@ def lnprobTransformed(theta_trans , n, nsteps, t_end, dataSet, metric = 'surviva
     lp = lnprior(theta_trans, prior)
     if not np.isfinite(lp):
         return -np.inf
-    return lp + lnlikeTransformed(theta_trans , n, nsteps, t_end, dataSet=dataSet, metric=metric, time_range=time_range, time_step_multiplier = time_step_multiplier, dt=dt, set_params=set_params,model_func=model_func, kwargs=kwargs)
+    return lp + lnlikeTransformed(theta_trans , n, nsteps, t_end, dataSet=dataSet, metric=metric, time_range=time_range, time_step_multiplier = time_step_multiplier, dt=dt, set_params=set_params,model_func=model_func, parallel=parallel, kwargs=kwargs)
 
 def draw_param(bins, log_space=True, log_samples=False):
     """
@@ -652,7 +652,7 @@ def getSampler(nwalkers, num_mcmc_steps, dataSet, seed=None, npeople=10000, nste
                bins=None, variations=[0.7, 1.3], draw_params_in_log_space=True, prior_generator=None,
                back_end_file=None, metric='baysian', time_range=None, time_step_multiplier=1, prior=None, 
                restartFromBackEnd=False, progress=False, transformed=False, dt=1, set_params=None, model_func=model, 
-               log_samples=False, **kwargs):
+               log_samples=False, parallel=False, **kwargs):
     """
     Create and run MCMC sampler for SR model parameter estimation.
     
@@ -789,7 +789,7 @@ def getSampler(nwalkers, num_mcmc_steps, dataSet, seed=None, npeople=10000, nste
 
     
 
-    args = [ npeople, nsteps, t_end, dataSet, metric, time_range, time_step_multiplier, prior, dt, set_params,model_func,log_samples,kwargs]
+    args = [ npeople, nsteps, t_end, dataSet, metric, time_range, time_step_multiplier, prior, dt, set_params,model_func,log_samples,parallel,kwargs]
     # Set the initial positions of the walkers
     if prior_generator is None:
         pos = [draw_param(bins=bins,log_space=draw_params_in_log_space, log_samples=log_samples) for i in range(nwalkers)]
@@ -824,7 +824,7 @@ def getSamplerAutoCorrMon(nwalkers, num_mcmc_steps, dataSet, seed=None, npeople=
                           bins=None, variations=[0.7, 1.3], draw_params_in_log_space=True,
                           back_end_file=None, metric='baysian', time_range=None, time_step_multiplier=1, prior=None,
                           restartFromBackEnd=False, progress=False, plot_correlations=False, transformed=False, dt=1,
-                          set_params=None, model_func=model, log_samples=False, **kwargs):
+                          set_params=None, model_func=model, log_samples=False, parallel=False, **kwargs):
     """
     Create and run MCMC sampler with autocorrelation monitoring.
     
@@ -942,7 +942,7 @@ def getSamplerAutoCorrMon(nwalkers, num_mcmc_steps, dataSet, seed=None, npeople=
             elif type(p) is float or type(p) is int:
                 prior[i] = [np.min(bins[i]) / p, np.max(bins[i]) * p]
 
-    args = [npeople, nsteps, t_end, dataSet, metric, time_range, time_step_multiplier, prior, dt, set_params, model_func, log_samples, kwargs]
+    args = [npeople, nsteps, t_end, dataSet, metric, time_range, time_step_multiplier, prior, dt, set_params, model_func, log_samples, parallel, kwargs]
     pos = [draw_param(bins=bins, log_space=draw_params_in_log_space, log_samples=log_samples) for i in range(nwalkers)]
 
     if transformed:
@@ -1570,9 +1570,9 @@ def custom_corner(
     return fig, axes
 
 
-def grid_search(theta, npeople, nsteps, t_end, dataSet, metric='survival', time_range=None, 
+def grid_search(theta, npeople, nsteps, t_end, dataSet, metric='baysian', time_range=None, 
                 time_step_multiplier=1, prior=None, dt=1, set_params=None, model_func=model, 
-                log_samples=False, kwargs=None, max_magnitude=1.1, max_tries=5, n_iterations=10, transformed=False, verbose=True, progress=False):
+                log_samples=False, kwargs=None, max_magnitude=1.1, max_tries=5, n_iterations=10, transformed=False, verbose=True, progress=False, parallel=False):
     """
     Perform grid search optimization around a given theta point.
     
@@ -1622,6 +1622,8 @@ def grid_search(theta, npeople, nsteps, t_end, dataSet, metric='survival', time_
         Whether to print progress information, default True
     progress : bool, optional
         Whether to show progress bar, default False
+    parallel : bool, optional
+        Whether to use parallel processing in model evaluation, default False
         
     Returns:
     --------
@@ -1653,6 +1655,13 @@ def grid_search(theta, npeople, nsteps, t_end, dataSet, metric='survival', time_
     theta = np.array(theta)
     n_params = len(theta)
     
+    # Handle prior parameter similar to getSampler
+    if prior is None:
+        prior = 10
+    if isinstance(prior, (int, float)):
+        # Create bins based on theta values and prior expansion factor
+        prior = [[theta[i] / prior, theta[i] * prior] for i in range(n_params)]
+    
     # Initialize best values
     theta_best = theta.copy()
     
@@ -1663,14 +1672,14 @@ def grid_search(theta, npeople, nsteps, t_end, dataSet, metric='survival', time_
                                           metric=metric, time_range=time_range,
                                           time_step_multiplier=time_step_multiplier, prior=prior, dt=dt,
                                           set_params=set_params, model_func=model_func, 
-                                          log_samples=log_samples, kwargs=kwargs)
+                                          log_samples=log_samples, parallel=parallel, kwargs=kwargs)
     else:
         # Use lnprob for regular parameters
         likelihood_best = lnprob(theta, npeople, nsteps, t_end, dataSet=dataSet,
                                 metric=metric, time_range=time_range,
                                 time_step_multiplier=time_step_multiplier, prior=prior, dt=dt,
                                 set_params=set_params, model_func=model_func, 
-                                log_samples=log_samples, kwargs=kwargs)
+                                log_samples=log_samples, parallel=parallel, kwargs=kwargs)
     
     convergence_history = [likelihood_best]
     improvements_found = 0
@@ -1736,14 +1745,14 @@ def grid_search(theta, npeople, nsteps, t_end, dataSet, metric='survival', time_
                                                     metric=metric, time_range=time_range,
                                                     time_step_multiplier=time_step_multiplier, prior=prior, dt=dt,
                                                     set_params=set_params, model_func=model_func, 
-                                                    log_samples=log_samples, kwargs=kwargs)
+                                                    log_samples=log_samples, parallel=parallel, kwargs=kwargs)
                 else:
                     # Use lnprob for regular parameters
                     likelihood_new = lnprob(theta_new, npeople, nsteps, t_end, dataSet=dataSet,
                                           metric=metric, time_range=time_range,
                                           time_step_multiplier=time_step_multiplier, prior=prior, dt=dt,
                                           set_params=set_params, model_func=model_func, 
-                                          log_samples=log_samples, kwargs=kwargs)
+                                          log_samples=log_samples, parallel=parallel, kwargs=kwargs)
                 
                 # Store all tested thetas and likelihoods
                 all_thetas_tested.append(theta_new.copy())
@@ -1776,73 +1785,80 @@ def grid_search(theta, npeople, nsteps, t_end, dataSet, metric='survival', time_
             if verbose:
                 print(f"  No improvement found in iteration {iteration + 1}")
             
-            # Try random directions up to max_tries times
+            # Try random magnitudes in all directions up to max_tries times
+            improvement_found = False
             for try_num in range(max_tries):
-                # Generate random direction (1 or -1 for each parameter)
-                random_direction = np.random.choice([-1, 1], size=n_params)
-                
-                # Random magnitude between 1.0 and max_magnitude
-                random_magnitude = np.random.uniform(1.0, max_magnitude)
-                
-                # Calculate new theta by applying random fold change to each parameter
-                theta_new = theta_best.copy()
-                
-                for i in range(n_params):
-                    if random_direction[i] > 0:
-                        # Increase parameter by random_magnitude fold
-                        if log_samples:
-                            # In log space, add the log of the fold change
-                            theta_new[i] = theta_best[i] + np.log(random_magnitude)
-                        else:
-                            # In linear or transformed space, multiply by the fold change
-                            theta_new[i] = theta_best[i] * random_magnitude
-                    else:
-                        # Decrease parameter by random_magnitude fold
-                        if log_samples:
-                            # In log space, subtract the log of the fold change
-                            theta_new[i] = theta_best[i] - np.log(random_magnitude)
-                        else:
-                            # In linear or transformed space, divide by the fold change
-                            theta_new[i] = theta_best[i] / random_magnitude
-                
-                # Calculate likelihood for new theta
-                try:
-                    if transformed:
-                        # Use lnprobTransformed for transformed parameters
-                        likelihood_new = lnprobTransformed(theta_new, npeople, nsteps, t_end, dataSet=dataSet,
-                                                        metric=metric, time_range=time_range,
-                                                        time_step_multiplier=time_step_multiplier, prior=prior, dt=dt,
-                                                        set_params=set_params, model_func=model_func, 
-                                                        log_samples=log_samples, kwargs=kwargs)
-                    else:
-                        # Use lnprob for regular parameters
-                        likelihood_new = lnprob(theta_new, npeople, nsteps, t_end, dataSet=dataSet,
-                                              metric=metric, time_range=time_range,
-                                              time_step_multiplier=time_step_multiplier, prior=prior, dt=dt,
-                                              set_params=set_params, model_func=model_func, 
-                                              log_samples=log_samples, kwargs=kwargs)
+                # Try all directions with random magnitudes
+                for direction in directions:
+                    # Random magnitude between 1.0 and max_magnitude
+                    random_magnitude = np.random.uniform(1.0, max_magnitude)
                     
-                    # Store all tested thetas and likelihoods
-                    all_thetas_tested.append(theta_new.copy())
-                    all_likelihoods.append(likelihood_new)
+                    # Calculate new theta by applying random fold change to each parameter
+                    theta_new = theta_best.copy()
                     
-                    if likelihood_new > likelihood_best:
-                        theta_best = theta_new.copy()
-                        likelihood_best = likelihood_new
-                        convergence_history.append(likelihood_best)
-                        improvements_found += 1
-                        if verbose:
-                            print(f"  Random improvement found! New likelihood: {likelihood_best:.6f}")
-                        if progress:
-                            iteration_range.set_postfix({
-                                'likelihood': f'{likelihood_best:.6f}',
-                                'improvements': improvements_found
-                            })
-                        break
+                    for i in range(n_params):
+                        if direction[i] > 0:
+                            # Increase parameter by random_magnitude fold
+                            if log_samples:
+                                # In log space, add the log of the fold change
+                                theta_new[i] = theta_best[i] + np.log(random_magnitude)
+                            else:
+                                # In linear or transformed space, multiply by the fold change
+                                theta_new[i] = theta_best[i] * random_magnitude
+                        elif direction[i] < 0:
+                            # Decrease parameter by random_magnitude fold
+                            if log_samples:
+                                # In log space, subtract the log of the fold change
+                                theta_new[i] = theta_best[i] - np.log(random_magnitude)
+                            else:
+                                # In linear or transformed space, divide by the fold change
+                                theta_new[i] = theta_best[i] / random_magnitude
+                        # If direction[i] == 0, keep theta_new[i] = theta_best[i] (no change)
+                    
+                    # Calculate likelihood for new theta
+                    try:
+                        if transformed:
+                            # Use lnprobTransformed for transformed parameters
+                            likelihood_new = lnprobTransformed(theta_new, npeople, nsteps, t_end, dataSet=dataSet,
+                                                            metric=metric, time_range=time_range,
+                                                            time_step_multiplier=time_step_multiplier, prior=prior, dt=dt,
+                                                            set_params=set_params, model_func=model_func, 
+                                                            log_samples=log_samples, parallel=parallel, kwargs=kwargs)
+                        else:
+                            # Use lnprob for regular parameters
+                            likelihood_new = lnprob(theta_new, npeople, nsteps, t_end, dataSet=dataSet,
+                                                  metric=metric, time_range=time_range,
+                                                  time_step_multiplier=time_step_multiplier, prior=prior, dt=dt,
+                                                  set_params=set_params, model_func=model_func, 
+                                                  log_samples=log_samples, parallel=parallel, kwargs=kwargs)
                         
-                except (ValueError, RuntimeError):
-                    # Skip invalid parameter combinations
-                    continue
+                        # Store all tested thetas and likelihoods
+                        all_thetas_tested.append(theta_new.copy())
+                        all_likelihoods.append(likelihood_new)
+                        
+                        if likelihood_new > likelihood_best:
+                            theta_best = theta_new.copy()
+                            likelihood_best = likelihood_new
+                            convergence_history.append(likelihood_best)
+                            improvements_found += 1
+                            improvement_found = True
+                            if verbose:
+                                print(f"  Random improvement found! New likelihood: {likelihood_best:.6f}")
+                            if progress:
+                                iteration_range.set_postfix({
+                                    'likelihood': f'{likelihood_best:.6f}',
+                                    'improvements': improvements_found
+                                })
+                            # Break out of both direction loop and try_num loop
+                            break
+                            
+                    except (ValueError, RuntimeError):
+                        # Skip invalid parameter combinations
+                        continue
+                
+                # If improvement found, break out of try_num loop
+                if improvement_found:
+                    break
             else:
                 # No improvement found in random tries either
                 if verbose:

@@ -544,7 +544,7 @@ class Posterior:
             return ax
 
 
-    def create_posterior_df(self,transforms = ['default'],labels = None, ds=None,ds_labels=None, kappa=0.5, filepath = None, smooth_mode = True, rescale=None):
+    def create_posterior_df(self,transforms = ['default'],labels = None, ds=None,ds_labels=None, kappa=0.5, filepath = None, smooth_mode = True, rescale=None, set_xc=False):
         """
         Creates a summerey pandas dataframe of the maximum posterior statistics for the samples.
         For each transfor in the transforms list, the statistics are calculated and added to the dataframe.
@@ -574,6 +574,10 @@ class Posterior:
             The value of kappa to use in the transforms that involve kappa. Default is 0.5
         filepath: str
             The path to save the dataframe to as csv. If None, the dataframe will not be saved.
+        set_xc: bool or float, optional
+            If True, uses the xc value from the sample. If a float, uses that fixed xc value for all transforms.
+            When set_xc is provided, the transformed samples will have 3 parameters instead of 4 (xc is not returned).
+            Default is False.
         """
         #if rescale is a float or int, and "default" is in the transforms list, rescale the samples as a rescaling of time:
         n_features = self.unique_samples.shape[1]
@@ -621,7 +625,10 @@ class Posterior:
         stats=['mean', 'std', 'mode', 'percentiles']
         summery_dict = {}
         for transform, label_set in zip(transforms, labels):
-            trans = lambda x: transform(x,kappa)
+            if set_xc is not False and set_xc is not None:
+                trans = lambda x: transform(x,kappa,set_xc=set_xc)
+            else:
+                trans = lambda x: transform(x,kappa)
             transformed_samples = np.apply_along_axis(trans, 1, resecaled_posterior.samples)
             post = Posterior(transformed_samples.copy(), resecaled_posterior.lnprobs.copy(), bins=bins, log=resecaled_posterior.log, progress_bar=resecaled_posterior.progress_bar, config_params=resecaled_posterior.config_params, help_text=resecaled_posterior.help_text, prior=resecaled_posterior.prior_object)
             max_liklihood = transformed_samples[np.argmax(self.lnprobs)]
@@ -2165,18 +2172,29 @@ def posterior_of_joint_distribution(samples_list,lnprobs_list,bins,log=False,pro
             
 
 
-def identity_transform(sample,kappa):
+def identity_transform(sample,kappa, set_xc=None):
     return sample
 
-def default_transform1(sample,kappa):
-    xc_eta, beta_eta, xc2_epsilon, xc = sample[:4]
+def default_transform1(sample,kappa, set_xc=None):
+    if set_xc is not None:
+        xc_eta, beta_eta, xc2_epsilon = sample[:3]
+        xc = set_xc
+    else:
+        xc_eta, beta_eta, xc2_epsilon, xc = sample[:4]
     eta = xc / xc_eta
     beta = beta_eta * eta
     epsilon = (xc ** 2)/xc2_epsilon 
-    return [eta, beta, epsilon] + list(sample[3:])
+    if set_xc is not None:
+        return [eta, beta, epsilon]
+    else:
+        return [eta, beta, epsilon] + list(sample[3:])
 
-def default_transform2(sample, kappa):
-    xc_eta, beta_eta, xc2_epsilon, xc = sample[:4]
+def default_transform2(sample, kappa, set_xc=None):
+    if set_xc is not None:
+        xc_eta, beta_eta, xc2_epsilon = sample[:3]
+        xc = set_xc
+    else:
+        xc_eta, beta_eta, xc2_epsilon, xc = sample[:4]
     eta = xc / xc_eta
     beta = beta_eta * eta
     epsilon = (xc ** 2)/xc2_epsilon 
@@ -2184,10 +2202,17 @@ def default_transform2(sample, kappa):
     s = xc2_epsilon/t_eta
     bxe = beta*xc/epsilon
     
-    return [t_eta, s, bxe] + list(sample[3:])
+    if set_xc is not None:
+        return [t_eta, s, bxe]
+    else:
+        return [t_eta, s, bxe] + list(sample[3:])
 
-def default_transform3(sample, kappa):
-    xc_eta, beta_eta, xc2_epsilon, xc = sample[:4]
+def default_transform3(sample, kappa, set_xc=None):
+    if set_xc is not None:
+        xc_eta, beta_eta, xc2_epsilon = sample[:3]
+        xc = set_xc
+    else:
+        xc_eta, beta_eta, xc2_epsilon, xc = sample[:4]
     eta = xc / xc_eta
     beta = beta_eta * eta
     epsilon = (xc ** 2)/xc2_epsilon 
@@ -2195,34 +2220,58 @@ def default_transform3(sample, kappa):
     Fx = beta ** 2 / (eta * xc)
     Dx = beta * epsilon / (eta * (xc ** 2))
     
-    return [slope, Fx, Dx] + list(sample[3:])
+    if set_xc is not None:
+        return [slope, Fx, Dx]
+    else:
+        return [slope, Fx, Dx] + list(sample[3:])
 
-def default_transform4(sample, kappa):
-    xc_eta, beta_eta, xc2_epsilon, xc = sample[:4]
+def default_transform4(sample, kappa, set_xc=None):
+    if set_xc is not None:
+        xc_eta, beta_eta, xc2_epsilon = sample[:3]
+        xc = set_xc
+    else:
+        xc_eta, beta_eta, xc2_epsilon, xc = sample[:4]
     eta = xc / xc_eta
     beta = beta_eta * eta
     epsilon = (xc ** 2)/xc2_epsilon 
     Pk = beta * kappa / epsilon
     Fk = beta ** 2 / (eta * kappa)
     
-    return [Pk, Fk, beta_eta] + list(sample[3:])
+    if set_xc is not None:
+        return [Pk, Fk, beta_eta]
+    else:
+        return [Pk, Fk, beta_eta] + list(sample[3:])
 
-def default_transform5(sample, kappa):
-    xc_eta, beta_eta, xc2_epsilon, xc = sample[:4]
+def default_transform5(sample, kappa, set_xc=None):
+    if set_xc is not None:
+        xc_eta, beta_eta, xc2_epsilon = sample[:3]
+        xc = set_xc
+    else:
+        xc_eta, beta_eta, xc2_epsilon, xc = sample[:4]
     eta = xc / xc_eta
     beta = beta_eta * eta
     epsilon = (xc ** 2)/xc2_epsilon 
     Dk = beta * epsilon / (eta * kappa ** 2)
     Fk2_Dk = beta ** 3 / (eta * epsilon)
-    return [Dk, Fk2_Dk, beta_eta] + list(sample[3:])
+    if set_xc is not None:
+        return [Dk, Fk2_Dk, beta_eta]
+    else:
+        return [Dk, Fk2_Dk, beta_eta] + list(sample[3:])
 
-def default_transform6(sample,kappa):
-    xc_eta, beta_eta, xc2_epsilon, xc = sample[:4]
+def default_transform6(sample,kappa, set_xc=None):
+    if set_xc is not None:
+        xc_eta, beta_eta, xc2_epsilon = sample[:3]
+        xc = set_xc
+    else:
+        xc_eta, beta_eta, xc2_epsilon, xc = sample[:4]
     epsilon_beta2 = xc_eta**2/(beta_eta**2 * xc2_epsilon)
     eta = xc / xc_eta
     k_beta = kappa/(beta_eta * eta)
     k2_epsilon = kappa**2/((xc ** 2)/xc2_epsilon )
-    return [epsilon_beta2, k_beta, k2_epsilon] + list(sample[3:])
+    if set_xc is not None:
+        return [epsilon_beta2, k_beta, k2_epsilon]
+    else:
+        return [epsilon_beta2, k_beta, k2_epsilon] + list(sample[3:])
 
 def round_value(value, precision=2):
     if value == 0:

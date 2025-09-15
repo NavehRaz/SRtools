@@ -80,12 +80,12 @@ PRESET_ALIASES = {
     'Dog German Shepherd': 'GermanShepherd_vetCompass',
     
     # Jack Russell aliases
-    'Jack Russell': 'JackRussell_vetCompass',
-    'Jack Russell_vetCompass': 'JackRussell_vetCompass',
-    'jack russell': 'JackRussell_vetCompass',
-    'Jack Russell_vetCompass': 'JackRussell_vetCompass',
-    'dog jack russell': 'JackRussell_vetCompass',
-    'Dog Jack Russell': 'JackRussell_vetCompass',
+    'Jack Russell': 'Jack_Russell_vetCompass',
+    'Jack Russell_vetCompass': 'Jack_Russell_vetCompass',
+    'jack russell': 'Jack_Russell_vetCompass',
+    'Jack Russell_vetCompass': 'Jack_Russell_vetCompass',
+    'dog jack russell': 'Jack_Russell_vetCompass',
+    'Dog Jack Russell': 'Jack_Russell_vetCompass',
 
     # C. elegans aliases
     'C. elegans': 'celegance',
