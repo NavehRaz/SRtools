@@ -239,8 +239,8 @@ def get_preset_names(type = "mode_overall"):
 
 def get_config_params(
     preset_name="humans_M_combined",
-    config_params=['nsteps', 'time_step_multiplier', 'npeople', 't_end', 'time_range'],
-    types=[int, int, int, int, list],
+    config_params=['nsteps', 'time_step_multiplier', 'npeople', 't_end', 'time_range','hetro'],
+    types=[int, int, int, int, list,bool],
     time_unit=None,
     verbose=False
     ):
