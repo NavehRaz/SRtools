@@ -1,6 +1,6 @@
 import numpy as np
 import pandas as pd
-from SRtools import sr_mcmc
+from . import sr_mcmc
 import ast
 
 class PriorGen:

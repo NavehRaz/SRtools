@@ -9,7 +9,7 @@ import os
 import sys
 import warnings
 import ast
-from SRtools import SR_hetro as srh
+from . import SR_hetro as srh
 
 # Dictionary mapping aliases to actual preset names
 PRESET_ALIASES = {

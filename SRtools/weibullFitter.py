@@ -1,4 +1,4 @@
-import deathTimesDataSet as dtds
+from . import deathTimesDataSet as dtds
 import autograd.numpy as np
 import matplotlib.pyplot as plt
 from lifelines import WeibullFitter as WBF

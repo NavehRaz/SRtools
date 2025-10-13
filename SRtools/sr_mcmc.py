@@ -17,9 +17,9 @@ The module supports both standard and transformed parameter spaces, with flexibl
 prior specification and likelihood functions for different metrics (Bayesian, survival).
 """
 
-from SRtools import SRmodellib as sr
+from . import SRmodellib as sr
 import numpy as np
-from SRtools import SRmodellib_lifelines as srl
+from . import SRmodellib_lifelines as srl
 import emcee # a MCMC sampler
 import time
 import pandas as pd

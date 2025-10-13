@@ -1,7 +1,7 @@
-from SRtools import SRmodellib_lifelines as srl
-from SRtools import SRmodellib as sr
+from . import SRmodellib_lifelines as srl
+from . import SRmodellib as sr
 import numpy as np
-from SRtools import deathTimesDataSet as dtds
+from . import deathTimesDataSet as dtds
 
 
 class Guess:

@@ -5,7 +5,7 @@ from numba import jit
 from scipy.stats import gaussian_kde
 from lifelines import KaplanMeierFitter
 from lifelines import NelsonAalenFitter
-from SRtools import SRmodellib as sr
+from . import SRmodellib as sr
 
 
 

@@ -1,11 +1,11 @@
-from SRtools import SRmodellib_lifelines as srl
+from . import SRmodellib_lifelines as srl
 import numpy as np
 from numba import jit
 from joblib import Parallel, delayed
-from SRtools import deathTimesDataSet as dtds
+from . import deathTimesDataSet as dtds
 import os
-from SRtools import sr_mcmc as srmc
-from SRtools import SRmodellib as sr
+from . import sr_mcmc as srmc
+from . import SRmodellib as sr
 
 jit_nopython = True
 

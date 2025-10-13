@@ -14,7 +14,7 @@ from scipy.stats import anderson_ksamp
 from joblib import Parallel, delayed
 from scipy.stats import gaussian_kde
 from scipy.integrate import quad
-from SRtools import deathTimesDataSet as dtds
+from . import deathTimesDataSet as dtds
 
 jit_nopython = True
 jit_parallel = True
@@ -1547,7 +1547,7 @@ def baysian_dirichlet_distance(sr1, sr2, time_range=None, dt=1, debug=False, lam
             print(f"Using provided bin edges: {bins}")
     else:
         # dt is a scalar - create bins with this bin size
-        # Determine the range for binning
+        # Determine the range for binning based on data (sr1)
         if time_range is not None:
             min_time = time_range[0]
             max_time_candidate = time_range[1]
@@ -1555,13 +1555,13 @@ def baysian_dirichlet_distance(sr1, sr2, time_range=None, dt=1, debug=False, lam
             min_time = 0
             max_time_candidate = np.inf
         
-        # Check the maximum death time in simulation
-        max_death_time_sim2 = np.max(death_times2) if len(death_times2) > 0 else 0
+        # Check the maximum death time in data (sr1)
+        max_death_time_data = np.max(death_times1) if len(death_times1) > 0 else 0
         
-        # If time_range is None or its right end is bigger than max death time in sim2,
-        # use max death time from sim2
-        if max_time_candidate > max_death_time_sim2:
-            max_time = max_death_time_sim2
+        # If time_range is None or its right end is bigger than max death time in data,
+        # use max death time from data
+        if max_time_candidate > max_death_time_data:
+            max_time = max_death_time_data
         else:
             max_time = max_time_candidate
         
@@ -1637,13 +1637,26 @@ def baysian_dirichlet_distance(sr1, sr2, time_range=None, dt=1, debug=False, lam
     
     # Dirichlet-multinomial log-likelihood formula:
     # log L = gammaln(A0) - gammaln(m + A0) + sum(gammaln(y + alpha) - gammaln(alpha))
-    logL_uncensored = (gammaln(A0) - gammaln(m + A0) + 
-                       np.sum(gammaln(y + alpha) - gammaln(alpha)))
     
     if debug:
+        # Calculate per-bin contributions for debugging only
+        bin_contributions = gammaln(y + alpha) - gammaln(alpha)
+        logL_uncensored = (gammaln(A0) - gammaln(m + A0) + np.sum(bin_contributions))
+        
         print(f"alpha = c + lambda: {alpha}")
         print(f"A0 = sum(alpha): {A0}")
+        print(f"\nUncensored data - Per-bin contributions to log-likelihood:")
+        print(f"{'Bin':<6} {'y[i]':<8} {'c[i]':<8} {'alpha[i]':<10} {'Contribution':<15}")
+        print("-" * 60)
+        for i in range(len(bin_contributions)):
+            print(f"{i:<6} {y[i]:<8.1f} {c[i]:<8.1f} {alpha[i]:<10.2f} {bin_contributions[i]:<15.6f}")
+        print(f"\nConstant terms: gammaln(A0) - gammaln(m + A0) = {gammaln(A0) - gammaln(m + A0):.6f}")
+        print(f"Sum of bin contributions: {np.sum(bin_contributions):.6f}")
         print(f"Log-likelihood (uncensored): {logL_uncensored}")
+    else:
+        # Fast path when debug is False - no intermediate arrays
+        logL_uncensored = (gammaln(A0) - gammaln(m + A0) + 
+                          np.sum(gammaln(y + alpha) - gammaln(alpha)))
     
     # ============================================================================
     # Step 5: Handle censored data
@@ -1674,33 +1687,54 @@ def baysian_dirichlet_distance(sr1, sr2, time_range=None, dt=1, debug=False, lam
         # Last bin (overflow): censored times >= T
         L[K - 1] = np.sum(censored1 >= T)
         
-        if debug:
-            print(f"Censored counts by bin (L): {L}")
-            print(f"alpha_prime = alpha + y: {alpha_prime}")
-            print(f"alpha0_prime = sum(alpha_prime): {alpha0_prime}")
-            print(f"Tail cumulative sums A: {A}")
-        
         # Compute censored likelihood contribution
         # Iterate from K down to 1 (in Python: from K-1 down to 0)
         logL_censored = 0.0
         T_after = 0  # Cumulative count of censored observations after current bin
         
-        for r in range(K - 1, -1, -1):  # From K-1 down to 0
-            Lr = L[r]
-            if Lr == 0:
-                continue
-            
-            # Add censored contribution for bin r:
-            # log L += gammaln(A[r] + Lr) - gammaln(A[r])
-            #          - gammaln(alpha0_prime + T_after + Lr) + gammaln(alpha0_prime + T_after)
-            logL_censored += (gammaln(A[r] + Lr) - gammaln(A[r]) -
-                             gammaln(alpha0_prime + T_after + Lr) + 
-                             gammaln(alpha0_prime + T_after))
-            
-            T_after += Lr
-        
         if debug:
-            print(f"Log-likelihood (censored): {logL_censored}")
+            print(f"\nCensored counts by bin (L): {L}")
+            print(f"alpha_prime = alpha + y: {alpha_prime}")
+            print(f"alpha0_prime = sum(alpha_prime): {alpha0_prime}")
+            print(f"Tail cumulative sums A: {A}")
+            print(f"\nCensored data - Per-bin contributions to log-likelihood:")
+            print(f"{'Bin':<6} {'L[r]':<8} {'A[r]':<12} {'T_after':<10} {'Contribution':<15}")
+            print("-" * 65)
+            
+            # Debug path: calculate and display per-bin contributions
+            for r in range(K - 1, -1, -1):  # From K-1 down to 0
+                Lr = L[r]
+                if Lr == 0:
+                    continue
+                
+                # Add censored contribution for bin r:
+                # log L += gammaln(A[r] + Lr) - gammaln(A[r])
+                #          - gammaln(alpha0_prime + T_after + Lr) + gammaln(alpha0_prime + T_after)
+                bin_contrib = (gammaln(A[r] + Lr) - gammaln(A[r]) -
+                              gammaln(alpha0_prime + T_after + Lr) + 
+                              gammaln(alpha0_prime + T_after))
+                
+                print(f"{r:<6} {Lr:<8.1f} {A[r]:<12.2f} {T_after:<10.1f} {bin_contrib:<15.6f}")
+                
+                logL_censored += bin_contrib
+                T_after += Lr
+            
+            print(f"\nLog-likelihood (censored): {logL_censored}")
+        else:
+            # Fast path when debug is False
+            for r in range(K - 1, -1, -1):  # From K-1 down to 0
+                Lr = L[r]
+                if Lr == 0:
+                    continue
+                
+                # Add censored contribution for bin r:
+                # log L += gammaln(A[r] + Lr) - gammaln(A[r])
+                #          - gammaln(alpha0_prime + T_after + Lr) + gammaln(alpha0_prime + T_after)
+                logL_censored += (gammaln(A[r] + Lr) - gammaln(A[r]) -
+                                 gammaln(alpha0_prime + T_after + Lr) + 
+                                 gammaln(alpha0_prime + T_after))
+                
+                T_after += Lr
     else:
         logL_censored = 0.0
         if debug:
@@ -1712,7 +1746,14 @@ def baysian_dirichlet_distance(sr1, sr2, time_range=None, dt=1, debug=False, lam
     total_logL = logL_uncensored + logL_censored
     
     if debug:
-        print(f"Total log-likelihood: {total_logL}")
+        print(f"\n{'='*65}")
+        print(f"SUMMARY OF LOG-LIKELIHOOD CONTRIBUTIONS:")
+        print(f"{'='*65}")
+        print(f"Uncensored contribution:  {logL_uncensored:>15.6f}")
+        print(f"Censored contribution:    {logL_censored:>15.6f}")
+        print(f"{'-'*65}")
+        print(f"Total log-likelihood:     {total_logL:>15.6f}")
+        print(f"{'='*65}\n")
     
     # Check for NaN
     if np.isnan(total_logL):

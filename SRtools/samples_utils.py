@@ -2081,7 +2081,7 @@ def getStats(samples, lnprobs, dthetas, stats=['mean','std'],percentiles = [16, 
     return stats_dict
 
 
-from SRtools import joint_posterior as jp
+from . import joint_posterior as jp
 import numpy as np
 from scipy.special import logsumexp
 class JointPosterior(jp.JointPosterior):
