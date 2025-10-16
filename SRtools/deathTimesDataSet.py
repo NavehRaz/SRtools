@@ -4,6 +4,8 @@ import matplotlib.pyplot as plt
 from lifelines import KaplanMeierFitter
 from lifelines import NelsonAalenFitter
 import seaborn as sns
+import sys
+
 
 
 class Dataset:
@@ -115,7 +117,7 @@ class Dataset:
             E = np.ones_like(T)
             self.events = E
 
-        
+
         kmf = KaplanMeierFitter().fit(T, E)
         self.survival = kmf.timeline, np.array(kmf.survival_function_.values)[:,0]
         #95% confidence interval
@@ -126,6 +128,7 @@ class Dataset:
         naf = NelsonAalenFitter().fit(T, event_observed=E)
         self.hazard = naf.timeline, np.array(naf.smoothed_hazard_(bandwidth=self.bandwidth).values)[:,0]
         self.naf = naf
+
 
     def plotSurvival(self, ax=None, time_range=None, **kwargs):
         """

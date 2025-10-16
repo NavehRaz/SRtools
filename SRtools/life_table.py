@@ -550,10 +550,10 @@ class Life_table(dtds.Dataset):
         else:
             return self.ages[-1]
     
-    def toCsv(self, file_name, properties=False, as_life_table=False):
+    def toCsv(self, file_name, properties=False, as_life_table=False, dt=0.5):
         """
         Save life table data to CSV file.
-        
+
         Parameters:
         -----------
         file_name : str
@@ -563,6 +563,8 @@ class Life_table(dtds.Dataset):
         as_life_table : bool
             If True, exports as life table (ages, n_alive, hazard)
             If False, generates and exports sampled death times
+        dt : float
+            Bin size for exported death times (as regular dataset); times are rounded down to nearest multiple of dt
         """
         if as_life_table:
             # Export as life table
@@ -572,7 +574,7 @@ class Life_table(dtds.Dataset):
                 'survival': self.n_alive / self.n_alive[0],
                 'hazard': self.hazard[1]
             }
-            
+
             # Add tail bin as a final row if present
             if self.tail_bin is not None:
                 tail_data = {
@@ -586,16 +588,23 @@ class Life_table(dtds.Dataset):
                 df = pd.concat([df_main, df_tail], ignore_index=True)
             else:
                 df = pd.DataFrame(data)
-            
+
             df.to_csv(file_name, index=False)
         else:
             # Generate death times and export as regular dataset
             death_times, events = self._sample_death_times_from_survival(self.npeople)
-            data = {'death times': death_times, 'events': events}
             
+            # Bin all death times to nearest lower multiple of dt (e.g. 3.23→3.0 if dt=1)
+            if dt > 0:
+                binned_death_times = np.floor(death_times / dt) * dt
+            else:
+                binned_death_times = death_times  # If dt=0 or negative, skip binning
+
+            data = {'death times': binned_death_times, 'events': events}
+
             if properties and self.properties is not None:
                 data.update(self.properties)
-            
+
             df = pd.DataFrame(data)
             df.to_csv(file_name, index=False)
     
