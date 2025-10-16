@@ -22,7 +22,7 @@ jit_parallel = True
 class SR(dtds.Dataset):
     def __init__(self, eta, beta, kappa, epsilon, xc,
                   npeople, nsteps, t_end, t_start = 0,
-                    tscale = 'years', memory_efficient =False, natural_units = True, smoothing = 20,
+                    tscale = 'years', memory_efficient =True, natural_units = True, smoothing = 20,
                       boundary = 'sticking',
                         save_dist = False , dist_years =np.linspace(0,100,101), dist_method = 'hist', dist_nvalues = 40, y_gamma =None, death_times_method = 1,external_hazard = np.inf, time_step_multiplier = 1, parallel =False, method='brownian_bridge'):
         """ 
