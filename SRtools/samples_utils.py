@@ -2085,8 +2085,8 @@ from . import joint_posterior as jp
 import numpy as np
 from scipy.special import logsumexp
 class JointPosterior(jp.JointPosterior):
-    def __init__(self, samples_list, lnprobs_list, bins, log=False, progress_bar=True, config_params=None, help_text=None, prior=None, sorting=True):
-        return super().__init__(samples_list, lnprobs_list, bins, log=log, progress_bar=progress_bar, config_params=config_params, help_text=help_text, prior=prior, sorting=sorting)
+    def __init__(self, samples_list, lnprobs_list, bins, log=False, progress_bar=True, config_params=None, help_text=None, prior=None, sorting=True, lnprobs_are_posteriors=False, weights=None):
+        return super().__init__(samples_list, lnprobs_list, bins, log=log, progress_bar=progress_bar, config_params=config_params, help_text=help_text, prior=prior, sorting=sorting, lnprobs_are_posteriors=lnprobs_are_posteriors, weights=weights)
 
 def posterior_of_joint_distribution(samples_list,lnprobs_list,bins,log=False,progress_bar=True):
     """

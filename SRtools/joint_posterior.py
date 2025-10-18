@@ -7,9 +7,37 @@ from . import samples_utils as su
     
     
 class JointPosterior(su.Posterior):    
-    def __init__(self, samples_list, lnprobs_list, bins, log=False, progress_bar=True, config_params=None, help_text=None, prior=None, sorting=True):
+    def __init__(self, samples_list, lnprobs_list, bins, log=False, progress_bar=True, config_params=None, help_text=None, prior=None, sorting=True, lnprobs_are_posteriors=False, weights=None):
         """
         Returns a posterior object of the joint distribution of many samples lists.
+        
+        Parameters
+        ----------
+        samples_list : list of numpy.ndarray
+            List of sample arrays, each of shape (n_samples, n_features)
+        lnprobs_list : list of numpy.ndarray
+            List of log probabilities corresponding to each sample
+        bins : int or list
+            Binning specification
+        log : bool or list, optional
+            Whether to use log scale for each feature
+        progress_bar : bool, optional
+            Whether to show progress bars during computations
+        config_params : dict, optional
+            Configuration parameters used to generate the samples
+        help_text : str, optional
+            Help text describing the posterior
+        prior : Posterior or None, optional
+            A Posterior object representing the prior distribution
+        sorting : bool, optional
+            Whether to sort samples by probability
+        lnprobs_are_posteriors : bool, optional
+            If True, treats lnprobs_list as posteriors (not likelihoods) and does weighted
+            averaging instead of multiplication. Default is False (multiply likelihoods).
+        weights : array-like, optional
+            Weights for weighted averaging when lnprobs_are_posteriors=True. Must sum to 1.
+            If None and lnprobs_are_posteriors=True, equal weights are used. Ignored when
+            lnprobs_are_posteriors=False.
         """
         #if bins is an integer or a list of integers, it means we need to build the bins for each feature so all samples sets are on the same grid.
         #this we do by building the grid on the widest range of the samples along each feature.
@@ -17,6 +45,37 @@ class JointPosterior(su.Posterior):
         if prior is not None:
             import warnings
             warnings.warn("Using joint posteriors with priors is not tested. Marginalizations might not be calculated properly.", UserWarning)
+
+        # Store the flag
+        self.lnprobs_are_posteriors = lnprobs_are_posteriors
+
+        # Validate and normalize weights for posterior averaging
+        if lnprobs_are_posteriors:
+            if weights is None:
+                weights = np.ones(len(samples_list)) / len(samples_list)
+            else:
+                weights = np.array(weights)
+                if len(weights) != len(samples_list):
+                    raise ValueError("Number of weights must match number of sample lists")
+                if not np.isclose(weights.sum(), 1.0):
+                    raise ValueError("Weights must sum to 1")
+                if np.any(weights < 0):
+                    raise ValueError("Weights must be non-negative")
+            
+            # Warn if prior is provided with posterior inputs
+            if prior is not None:
+                import warnings
+                warnings.warn(
+                    "JointPosterior with lnprobs_are_posteriors=True: "
+                    "Input lnprobs should already be posteriors. "
+                    "Providing a prior may lead to incorrect results. "
+                    "Consider setting prior=None.",
+                    UserWarning
+                )
+        else:
+            weights = None  # Not used for likelihood multiplication
+
+        self.weights = weights
 
                 # Initialize new attributes from Posterior class
         self.config_params = config_params
@@ -70,31 +129,79 @@ class JointPosterior(su.Posterior):
         else:
             self.prior = False # Check if the samples_list and lnprobs_list are lists of lists
 
-        posts =[]
-        raw_unique_samples = defaultdict(lambda: [np.zeros(n_features), 0, 0])
+        posts = []
 
+        if lnprobs_are_posteriors:
+            # For posterior averaging: store list of lnprobs for each grid point
+            raw_unique_samples = defaultdict(lambda: [np.zeros(n_features), [], 0])
+        else:
+            # For likelihood multiplication: accumulate log probs
+            raw_unique_samples = defaultdict(lambda: [np.zeros(n_features), 0, 0])
 
         for i in range(len(samples_list)):
-            post = su.Posterior(samples_list[i],lnprobs_list[i],bins,log=log,progress_bar=progress_bar,config_params=config_params,help_text=help_text,prior=prior,sorting=sorting)
+            # When lnprobs_are_posteriors=True, set prior=None in individual Posteriors
+            post_prior = None if lnprobs_are_posteriors else prior
+            post = su.Posterior(samples_list[i], lnprobs_list[i], bins, log=log,
+                               progress_bar=progress_bar, config_params=config_params,
+                               help_text=help_text, prior=post_prior, sorting=sorting)
             posts.append(post)
+            
             if progress_bar:
-                iterator = tqdm(range(post.unique_samples.shape[0]), desc=f"Processing unique samples for set {i}")
+                desc = f"Processing posterior {i+1}/{len(samples_list)}" if lnprobs_are_posteriors else f"Processing unique samples for set {i}"
+                iterator = tqdm(range(post.unique_samples.shape[0]), desc=desc)
             else:
                 iterator = range(post.unique_samples.shape[0])
 
             for j in iterator:
                 key = tuple(post.unique_samples[j, :])
-                raw_unique_samples[key][0] = post.unique_samples[j,:]
-                raw_unique_samples[key][1] += post.lnprobs_density[j]
-                if  isinstance(raw_unique_samples[key][2],int) and raw_unique_samples[key][2]== 0:
-                    raw_unique_samples[key][2] = post.dthetas[j,:]
+                raw_unique_samples[key][0] = post.unique_samples[j, :]
+                
+                if lnprobs_are_posteriors:
+                    # Store list of (index, lnprob) for weighted averaging
+                    raw_unique_samples[key][1].append((i, post.lnprobs_density[j]))
+                else:
+                    # Accumulate log probs (multiply probabilities)
+                    raw_unique_samples[key][1] += post.lnprobs_density[j]
+                
+                if isinstance(raw_unique_samples[key][2], int) and raw_unique_samples[key][2] == 0:
+                    raw_unique_samples[key][2] = post.dthetas[j, :]
                 
         
         raw_unique_samples = list(raw_unique_samples.values())
 
         unique_samples = np.array([sample[0] for sample in raw_unique_samples])
-        lnprobs_density = np.array([sample[1] for sample in raw_unique_samples])
         dthetas = np.array([sample[2] for sample in raw_unique_samples])
+
+        if lnprobs_are_posteriors:
+            # Weighted average of lnprobs_density using logsumexp for stability
+            from scipy.special import logsumexp
+            
+            lnprobs_density = []
+            for sample in raw_unique_samples:
+                lnprobs_list_for_point = sample[1]  # List of (posterior_index, lnprob_value)
+                
+                if len(lnprobs_list_for_point) == 0:
+                    lnprobs_density.append(-np.inf)
+                    continue
+                
+                # Extract indices and log probabilities
+                indices = [item[0] for item in lnprobs_list_for_point]
+                lnprobs = np.array([item[1] for item in lnprobs_list_for_point])
+                
+                # Get corresponding weights
+                point_weights = np.array([weights[idx] for idx in indices])
+                
+                # Compute weighted average: log(sum(w_i * p_i)) = logsumexp(log(p_i) + log(w_i))
+                log_weights = np.log(point_weights)
+                weighted_lnprob = logsumexp(lnprobs + log_weights)
+                
+                lnprobs_density.append(weighted_lnprob)
+            
+            lnprobs_density = np.array(lnprobs_density)
+        else:
+            # Original behavior: lnprobs already accumulated
+            lnprobs_density = np.array([sample[1] for sample in raw_unique_samples])
+        
         volumes = np.prod(dthetas,axis=1)
         evidence = su.calulate_evidence(lnprobs_density,volumes)
 
@@ -232,7 +339,7 @@ class JointPosterior(su.Posterior):
         for transform, label_set in zip(transforms, labels):
             trans = lambda x: transform(x,kappa)
             transformed_samples_list = [np.apply_along_axis(trans, 1, samples) for samples in self.samples_list]
-            post = JointPosterior(transformed_samples_list.copy(), self.lnprobs_list.copy(), self.raw_bins, log=self.log, progress_bar=self.progress_bar)
+            post = JointPosterior(transformed_samples_list.copy(), self.lnprobs_list.copy(), self.raw_bins, log=self.log, progress_bar=self.progress_bar, lnprobs_are_posteriors=self.lnprobs_are_posteriors, weights=self.weights)
             max_liklihood = [transformed_samples_list[i][np.argmax(self.lnprobs_list[i])] for i in range(len(transformed_samples_list))]
             max_likelihood_overall_index = np.argmax([max(self.lnprobs_list[i]) for i in range(len(self.lnprobs_list))])
             max_liklihood = max_liklihood[max_likelihood_overall_index]
@@ -337,6 +444,8 @@ class JointPosterior(su.Posterior):
             "prior_dthetas": self.prior_dthetas.tolist() if self.prior_dthetas is not None else None,
             "prior": [self.prior] * self.unique_samples.shape[0] if hasattr(self, "prior") else None,
             "raw_bins": [self.raw_bins] * self.unique_samples.shape[0] if self.raw_bins is not None else None,
+            "lnprobs_are_posteriors": [self.lnprobs_are_posteriors] * self.unique_samples.shape[0] if hasattr(self, 'lnprobs_are_posteriors') else None,
+            "weights": [self.weights] * self.unique_samples.shape[0] if hasattr(self, 'weights') and self.weights is not None else None,
         }
 
         # Ensure the file has a .csv extension
@@ -415,6 +524,8 @@ class JointPosterior(su.Posterior):
             "prior_dthetas": np.array([ast.literal_eval(item) for item in df["prior_dthetas"].dropna()]) if "prior_dthetas" in df.columns else None,
             "prior": df["prior"].iloc[0] if "prior" in df.columns else None,
             "raw_bins": safe_eval_raw_bins(df["raw_bins"].iloc[0]) if "raw_bins" in df.columns and pd.notna(df["raw_bins"].iloc[0]) else None,
+            "lnprobs_are_posteriors": df["lnprobs_are_posteriors"].iloc[0] if "lnprobs_are_posteriors" in df.columns else False,
+            "weights": ast.literal_eval(df["weights"].iloc[0]) if "weights" in df.columns and pd.notna(df["weights"].iloc[0]) else None,
         }
 
         # Initialize samples_list, lnprobs_list, and prior_lnprobs as None
@@ -440,7 +551,9 @@ class JointPosterior(su.Posterior):
 
         # Create and populate the JointPosterior object
         loaded_posterior = JointPosterior(samples_list=samples_list, lnprobs_list=lnprobs_list, bins=posterior_data["raw_bins"], 
-                                        log=posterior_data["log"], progress_bar=True)
+                                        log=posterior_data["log"], progress_bar=True,
+                                        lnprobs_are_posteriors=posterior_data.get("lnprobs_are_posteriors", False),
+                                        weights=posterior_data.get("weights", None))
         
         # Set additional attributes
         loaded_posterior.unique_samples = posterior_data["unique_samples"]
