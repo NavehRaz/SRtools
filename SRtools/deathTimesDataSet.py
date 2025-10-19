@@ -46,8 +46,12 @@ class Dataset:
             Plots the hazard function.
         plotScaledHazard(ax=None, **kwargs):
             Plots the scaled hazard function.
+        plotCumHazard(ax=None, **kwargs):
+            Plots the cumulative hazard function.
         getHazard():
             Returns the hazard function for the dataset.
+        getCumHazard():
+            Returns the cumulative hazard function for the dataset.
         sample(n):
             Samples n death times from the dataset and returns a "sampled" cohort.
         plot_survival_bootstrap(ax=None, **kwargs):
@@ -130,13 +134,16 @@ class Dataset:
         self.naf = naf
 
 
-    def plotSurvival(self, ax=None, time_range=None, **kwargs):
+    def plotSurvival(self, ax=None, time_range=None, title=None, xlabel=None, ylabel=None, **kwargs):
         """
         Plots the survival function.
         
         Parameters:
             ax (matplotlib.axes.Axes, optional): The axes to plot on. Default is None.
             time_range (tuple, optional): The time range for the plot. Default is None.
+            title (str, optional): The title of the plot. Default is None.
+            xlabel (str, optional): The x-axis label. Default is None.
+            ylabel (str, optional): The y-axis label. Default is None.
             **kwargs: Additional keyword arguments for the plot.
         """
         if ax is None:
@@ -147,18 +154,29 @@ class Dataset:
         else:
             self.kmf.plot_survival_function(ax=ax, **kwargs)
 
-        ax.set_xlabel('Age')
+        if xlabel is not None:
+            ax.set_xlabel(xlabel)
+        else:
+            ax.set_xlabel('Age')
+        if ylabel is not None:
+            ax.set_ylabel(ylabel)
+        if title is not None:
+            ax.set_title(title)
         ax.spines['right'].set_visible(False)
         ax.spines['top'].set_visible(False)
         return ax
     
-    def plotScaledSurvival(self, ax=None,time_range=None,CI=True, **kwargs):
+    def plotScaledSurvival(self, ax=None,time_range=None,CI=True, title=None, xlabel=None, ylabel=None, **kwargs):
         """
         Plots the scaled survival function.
         
         Parameters:
             ax (matplotlib.axes.Axes, optional): The axes to plot on. Default is None.
             time_range (tuple, optional): The time range for the plot. Default is None.
+            CI (bool, optional): Whether to show confidence interval. Default is True.
+            title (str, optional): The title of the plot. Default is None.
+            xlabel (str, optional): The x-axis label. Default is None.
+            ylabel (str, optional): The y-axis label. Default is None.
             **kwargs: Additional keyword arguments for the plot.
         """
         if ax is None:
@@ -178,6 +196,12 @@ class Dataset:
                 ax.fill_between(t/median_time, bottom, top, alpha=0.3, color=kwargs['color'])
             else:
                 ax.fill_between(t/median_time, bottom, top, alpha=0.3)
+        if xlabel is not None:
+            ax.set_xlabel(xlabel)
+        if ylabel is not None:
+            ax.set_ylabel(ylabel)
+        if title is not None:
+            ax.set_title(title)
         ax.spines['right'].set_visible(False)
         ax.spines['top'].set_visible(False)
         return ax
@@ -237,7 +261,7 @@ class Dataset:
         
         return prob_death, bin_edges
     
-    def plotDeathTimesDistribution(self, ax=None, bins=None, use_kde =False, dt=1, time_range=None, **kwargs):
+    def plotDeathTimesDistribution(self, ax=None, bins=None, use_kde =False, dt=1, time_range=None, title=None, xlabel=None, ylabel=None, **kwargs):
         """
         This function plots the death times distribution.
         
@@ -247,6 +271,9 @@ class Dataset:
             use_kde (bool, optional): Whether to use Kernel Density Estimation. Default is False.
             dt (float, optional): The time step size for the data. Default is 1.
             time_range (tuple, optional): The time range for the distribution. Default is None.
+            title (str, optional): The title of the plot. Default is None.
+            xlabel (str, optional): The x-axis label. Default is None.
+            ylabel (str, optional): The y-axis label. Default is None.
             **kwargs: Additional keyword arguments for the plot.
         """
         if ax is None:
@@ -265,8 +292,16 @@ class Dataset:
         else:
             prob_death, bin_edges = self.get_death_times_distribution(bins,dt=dt,time_range=time_range)
             ax.step(bin_edges[:-1], prob_death, where='post', **kwargs)
-        ax.set_xlabel('Death time (days)')
-        ax.set_ylabel('Probability of death')
+        if xlabel is not None:
+            ax.set_xlabel(xlabel)
+        else:
+            ax.set_xlabel('Death time (days)')
+        if ylabel is not None:
+            ax.set_ylabel(ylabel)
+        else:
+            ax.set_ylabel('Probability of death')
+        if title is not None:
+            ax.set_title(title)
         ax.spines['right'].set_visible(False)
         ax.spines['top'].set_visible(False)
         return ax, bins
@@ -426,12 +461,15 @@ class Dataset:
             # Assume iterable/list
             return {stat: compute(stat) for stat in types}
 
-    def plotHazard(self, ax=None, **kwargs):
+    def plotHazard(self, ax=None, title=None, xlabel=None, ylabel=None, **kwargs):
         """
         Plots the hazard function.
         
         Parameters:
             ax (matplotlib.axes.Axes, optional): The axes to plot on. Default is None.
+            title (str, optional): The title of the plot. Default is None.
+            xlabel (str, optional): The x-axis label. Default is None.
+            ylabel (str, optional): The y-axis label. Default is None.
             **kwargs: Additional keyword arguments for the plot.
         """
         if ax is None:
@@ -441,17 +479,30 @@ class Dataset:
         else:
             self.naf.plot_hazard(ax=ax, bandwidth=self.bandwidth, **kwargs)
         ax.set_yscale('log')
-        ax.set_xlabel('Age')
+        if xlabel is not None:
+            ax.set_xlabel(xlabel)
+        else:
+            ax.set_xlabel('Age')
+        if ylabel is not None:
+            ax.set_ylabel(ylabel)
+        if title is not None:
+            ax.set_title(title)
         ax.spines['right'].set_visible(False)
         ax.spines['top'].set_visible(False)
         return ax
     
-    def plotScaledHazard(self, ax=None,scale =None,clean_plot=True,clean_at = 1e-6,**kwargs):
+    def plotScaledHazard(self, ax=None,scale =None,clean_plot=True,clean_at = 1e-6, title=None, xlabel=None, ylabel=None, **kwargs):
         """
         Plots the scaled hazard function.
         
         Parameters:
             ax (matplotlib.axes.Axes, optional): The axes to plot on. Default is None.
+            scale (float, optional): The scale factor for the x-axis. Default is None.
+            clean_plot (bool, optional): Whether to clean the plot by removing low values. Default is True.
+            clean_at (float, optional): The threshold for cleaning the plot. Default is 1e-6.
+            title (str, optional): The title of the plot. Default is None.
+            xlabel (str, optional): The x-axis label. Default is None.
+            ylabel (str, optional): The y-axis label. Default is None.
             **kwargs: Additional keyword arguments for the plot.
         """
         if ax is None:
@@ -464,6 +515,12 @@ class Dataset:
             h = h[h>clean_at]
         ax.plot(t/scale, h, **kwargs)
         ax.set_yscale('log')
+        if xlabel is not None:
+            ax.set_xlabel(xlabel)
+        if ylabel is not None:
+            ax.set_ylabel(ylabel)
+        if title is not None:
+            ax.set_title(title)
         ax.spines['right'].set_visible(False)
         ax.spines['top'].set_visible(False)
         return ax
@@ -473,6 +530,44 @@ class Dataset:
         This function returns the hazard function for the yeast dataset.
         """
         return self.hazard
+    
+    def plotCumHazard(self, ax=None, title=None, xlabel=None, ylabel=None, **kwargs):
+        """
+        Plots the cumulative hazard function.
+        
+        Parameters:
+            ax (matplotlib.axes.Axes, optional): The axes to plot on. Default is None.
+            title (str, optional): The title of the plot. Default is None.
+            xlabel (str, optional): The x-axis label. Default is None.
+            ylabel (str, optional): The y-axis label. Default is None.
+            **kwargs: Additional keyword arguments for the plot.
+        """
+        if ax is None:
+            fig, ax = plt.subplots()
+        self.naf.plot_cumulative_hazard(ax=ax, **kwargs)
+        if xlabel is not None:
+            ax.set_xlabel(xlabel)
+        else:
+            ax.set_xlabel('Age')
+        if ylabel is not None:
+            ax.set_ylabel(ylabel)
+        else:
+            ax.set_ylabel('Cumulative Hazard')
+        if title is not None:
+            ax.set_title(title)
+        ax.spines['right'].set_visible(False)
+        ax.spines['top'].set_visible(False)
+        return ax
+    
+    def getCumHazard(self):
+        """
+        This function returns the cumulative hazard function for the dataset.
+        
+        Returns:
+            t (numpy.ndarray): The time points of the cumulative hazard function.
+            ch (numpy.ndarray): The cumulative hazard values at the time points.
+        """
+        return self.naf.timeline, np.array(self.naf.cumulative_hazard_.values)[:,0]
     
     def sample(self, n):
         """
@@ -494,12 +589,15 @@ class Dataset:
         return Dataset(s_detimes, s_events, external_hazard=self.external_hazard, bandwidth=self.bandwidth, properties=s_properties)
     
     
-    def plot_survival_bootstrap(self,ax=None, **kwargs):
+    def plot_survival_bootstrap(self,ax=None, title=None, xlabel=None, ylabel=None, **kwargs):
         """
         This function plots the survival function with bootstrap confidence intervals.
         
         Parameters:
             ax (matplotlib.axes.Axes, optional): The axes to plot on. Default is None.
+            title (str, optional): The title of the plot. Default is None.
+            xlabel (str, optional): The x-axis label. Default is None.
+            ylabel (str, optional): The y-axis label. Default is None.
             **kwargs: Additional keyword arguments for the plot.
         """
         def get_survival_bootstrap(death_times, events,n_bootstraps):
@@ -533,6 +631,12 @@ class Dataset:
         lower_bound, upper_bound = get_survival_bootstrap(self.death_times, self.events, 1000)
         ax.plot(t, s, label='Survival function')
         ax.fill_between(t, lower_bound, upper_bound, alpha=0.3,**kwargs)
+        if xlabel is not None:
+            ax.set_xlabel(xlabel)
+        if ylabel is not None:
+            ax.set_ylabel(ylabel)
+        if title is not None:
+            ax.set_title(title)
         return ax
     
     def getConfidenceInterval(self):
@@ -842,7 +946,7 @@ class DatasetCollection:
         
         return keys
 
-    def plotSurvival(self, properties=None, values=None, randomize=False, ax=None, **kwargs):
+    def plotSurvival(self, properties=None, values=None, randomize=False, ax=None, title=None, xlabel=None, ylabel=None, **kwargs):
         """
         Plots the survival function of the datasets.
         
@@ -851,6 +955,9 @@ class DatasetCollection:
             values (list of lists, optional): List of lists of values to match for each property. Default is None.
             randomize (int, optional): Number of keys to randomly select. Default is False.
             ax (matplotlib.axes.Axes, optional): The axes to plot on. Default is None.
+            title (str, optional): The title of the plot. Default is None.
+            xlabel (str, optional): The x-axis label. Default is None.
+            ylabel (str, optional): The y-axis label. Default is None.
             **kwargs: Additional keyword arguments for the plot.
         """
         if ax is None:
@@ -859,13 +966,20 @@ class DatasetCollection:
         for key in keys:
             kwargs['label'] = key
             self.datasets[key].plotSurvival(ax=ax, **kwargs)
-        ax.set_xlabel('Age')
+        if xlabel is not None:
+            ax.set_xlabel(xlabel)
+        else:
+            ax.set_xlabel('Age')
+        if ylabel is not None:
+            ax.set_ylabel(ylabel)
+        if title is not None:
+            ax.set_title(title)
         ax.spines['right'].set_visible(False)
         ax.spines['top'].set_visible(False)
         ax.legend(bbox_to_anchor=(1.05, 1), loc='upper left', borderaxespad=0)
         return ax
     
-    def plotScaledSurvival(self, properties=None, values=None, randomize=False, ax=None, **kwargs):
+    def plotScaledSurvival(self, properties=None, values=None, randomize=False, ax=None, title=None, xlabel=None, ylabel=None, **kwargs):
         """
         Plots the scaled survival function of the datasets.
         
@@ -874,6 +988,9 @@ class DatasetCollection:
             values (list of lists, optional): List of lists of values to match for each property. Default is None.
             randomize (int, optional): Number of keys to randomly select. Default is False.
             ax (matplotlib.axes.Axes, optional): The axes to plot on. Default is None.
+            title (str, optional): The title of the plot. Default is None.
+            xlabel (str, optional): The x-axis label. Default is None.
+            ylabel (str, optional): The y-axis label. Default is None.
             **kwargs: Additional keyword arguments for the plot.
         """
         if ax is None:
@@ -882,11 +999,17 @@ class DatasetCollection:
         for key in keys:
             kwargs['label'] = key
             self.datasets[key].plotScaledSurvival(ax=ax, **kwargs)
+        if xlabel is not None:
+            ax.set_xlabel(xlabel)
+        if ylabel is not None:
+            ax.set_ylabel(ylabel)
+        if title is not None:
+            ax.set_title(title)
         ax.spines['right'].set_visible(False)
         ax.spines['top'].set_visible(False)
         return ax
     
-    def plotHazard(self, properties=None, values=None, randomize=False, ax=None, **kwargs):
+    def plotHazard(self, properties=None, values=None, randomize=False, ax=None, title=None, xlabel=None, ylabel=None, **kwargs):
         """
         Plots the hazard function of the datasets.
         
@@ -895,6 +1018,9 @@ class DatasetCollection:
             values (list of lists, optional): List of lists of values to match for each property. Default is None.
             randomize (int, optional): Number of keys to randomly select. Default is False.
             ax (matplotlib.axes.Axes, optional): The axes to plot on. Default is None.
+            title (str, optional): The title of the plot. Default is None.
+            xlabel (str, optional): The x-axis label. Default is None.
+            ylabel (str, optional): The y-axis label. Default is None.
             **kwargs: Additional keyword arguments for the plot.
         """
         if ax is None:
@@ -904,9 +1030,51 @@ class DatasetCollection:
             kwargs['label'] = key
             self.datasets[key].plotHazard(ax=ax, **kwargs)
         ax.set_yscale('log')
-        ax.set_xlabel('Age')
+        if xlabel is not None:
+            ax.set_xlabel(xlabel)
+        else:
+            ax.set_xlabel('Age')
+        if ylabel is not None:
+            ax.set_ylabel(ylabel)
+        if title is not None:
+            ax.set_title(title)
         ax.spines['right'].set_visible(False)
         ax.spines['top'].set_visible(False)
+        return ax
+    
+    def plotCumHazard(self, properties=None, values=None, randomize=False, ax=None, title=None, xlabel=None, ylabel=None, **kwargs):
+        """
+        Plots the cumulative hazard function of the datasets.
+        
+        Parameters:
+            properties (list, optional): List of properties to match. Default is None.
+            values (list of lists, optional): List of lists of values to match for each property. Default is None.
+            randomize (int, optional): Number of keys to randomly select. Default is False.
+            ax (matplotlib.axes.Axes, optional): The axes to plot on. Default is None.
+            title (str, optional): The title of the plot. Default is None.
+            xlabel (str, optional): The x-axis label. Default is None.
+            ylabel (str, optional): The y-axis label. Default is None.
+            **kwargs: Additional keyword arguments for the plot.
+        """
+        if ax is None:
+            fig, ax = plt.subplots()
+        keys = self.getKeys(properties=properties, values=values, randomize=randomize)
+        for key in keys:
+            kwargs['label'] = key
+            self.datasets[key].plotCumHazard(ax=ax, **kwargs)
+        if xlabel is not None:
+            ax.set_xlabel(xlabel)
+        else:
+            ax.set_xlabel('Age')
+        if ylabel is not None:
+            ax.set_ylabel(ylabel)
+        else:
+            ax.set_ylabel('Cumulative Hazard')
+        if title is not None:
+            ax.set_title(title)
+        ax.spines['right'].set_visible(False)
+        ax.spines['top'].set_visible(False)
+        ax.legend(bbox_to_anchor=(1.05, 1), loc='upper left', borderaxespad=0)
         return ax
     
     def get_combined_dataset(self, properties=None, values=None, randomize=False):
@@ -1186,7 +1354,7 @@ class DatasetCollection:
 
         return DatasetCollection(datasets=new_datasets)
 
-    def plotSurvivalComparison(self, n_datasets=100, properties=None, values=None, randomize=False, ax=None, **kwargs):
+    def plotSurvivalComparison(self, n_datasets=100, properties=None, values=None, randomize=False, ax=None, title=None, xlabel=None, ylabel=None, **kwargs):
         """
         Plots the survival function of datasets in a DatasetCollection for comparison vs sampled datasets.
         Parameters:
@@ -1195,6 +1363,9 @@ class DatasetCollection:
             values (list of lists, optional): List of lists of values to match for each property. Default is None.
             randomize (int, optional): The number of datasets to randomly select from the DatasetCollection. Default is False.
             ax (axes.Axes, optional): The axes object to plot on. If None, a new figure and axes are created. Default is None.
+            title (str, optional): The title of the plot. Default is None.
+            xlabel (str, optional): The x-axis label. Default is None.
+            ylabel (str, optional): The y-axis label. Default is None.
             kwargs: Additional keyword arguments to pass to the plot function.
         Returns:
             ax (axes.Axes): The axes object of the plot.
@@ -1207,19 +1378,35 @@ class DatasetCollection:
             size = np.random.choice(sizes)
             sampled_dataset = combined_dataset.sample(size)
             sampled_dataset.plotSurvival(ax=ax[0], **kwargs)
-        ax[0].set_xlabel('Age')
+        if xlabel is not None:
+            ax[0].set_xlabel(xlabel)
+        else:
+            ax[0].set_xlabel('Age')
+        if ylabel is not None:
+            ax[0].set_ylabel(ylabel)
         ax[0].spines['right'].set_visible(False)
         ax[0].spines['top'].set_visible(False)
-        ax[0].set_title(f'Sampled datasets n datasets={n_datasets}')
+        if title is not None:
+            ax[0].set_title(f'{title} - Sampled datasets n={n_datasets}')
+        else:
+            ax[0].set_title(f'Sampled datasets n datasets={n_datasets}')
         ax[0].get_legend().remove()
         keys = self.getKeys(properties=properties, values=values, randomize=randomize)
         for key in keys:
             kwargs['label'] = key
             self.datasets[key].plotSurvival(ax=ax[1], **kwargs)
-        ax[1].set_xlabel('Age')
+        if xlabel is not None:
+            ax[1].set_xlabel(xlabel)
+        else:
+            ax[1].set_xlabel('Age')
+        if ylabel is not None:
+            ax[1].set_ylabel(ylabel)
         ax[1].spines['right'].set_visible(False)
         ax[1].spines['top'].set_visible(False)
-        ax[1].set_title('Data datasets')
+        if title is not None:
+            ax[1].set_title(f'{title} - Data datasets')
+        else:
+            ax[1].set_title('Data datasets')
         ax[1].legend(bbox_to_anchor=(1.05, 1), loc='upper left', borderaxespad=0)
 
         return ax
@@ -1314,7 +1501,7 @@ def dataCollectionFromExcel(excel_file_name,properties=None,additional_propertie
 
 
 
-def plotAll(dataSets,labels=None,time_range=None,ax=None):
+def plotAll(dataSets,labels=None,time_range=None,ax=None, title=None, xlabel=None, ylabel=None):
     """
     plots survival, hazard and death times distribution for all the datasets in dataSets
     """
@@ -1328,9 +1515,22 @@ def plotAll(dataSets,labels=None,time_range=None,ax=None):
         dataset.plotSurvival(ax=ax[0],label=label,time_range=time_range)
         dataset.plotHazard(ax=ax[1],label=label)
         dataset.plotDeathTimesDistribution(ax=ax[2],label=label,time_range=time_range)
-    ax[0].set_title('Survival')
-    ax[1].set_title('Hazard')
-    ax[2].set_title('Death times distribution')
+    if title is not None:
+        ax[0].set_title(f'{title} - Survival')
+        ax[1].set_title(f'{title} - Hazard')
+        ax[2].set_title(f'{title} - Death times distribution')
+    else:
+        ax[0].set_title('Survival')
+        ax[1].set_title('Hazard')
+        ax[2].set_title('Death times distribution')
+    if xlabel is not None:
+        ax[0].set_xlabel(xlabel)
+        ax[1].set_xlabel(xlabel)
+        ax[2].set_xlabel(xlabel)
+    if ylabel is not None:
+        ax[0].set_ylabel(ylabel)
+        ax[1].set_ylabel(ylabel)
+        ax[2].set_ylabel(ylabel)
     ax[0].legend()
     ax[1].legend()
     ax[2].legend()

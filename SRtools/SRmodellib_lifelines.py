@@ -25,6 +25,7 @@ class SR_lf(sr.SR):
     def calc_survival_and_hazard(self, death_times_method=2):
         T, E = self.calc_death_times()
         self.death_times = T
+        
         self.events = E
         # E = np.ones_like(T)
         if len(T)<self.npeople:
@@ -46,23 +47,40 @@ class SR_lf(sr.SR):
         naf = NelsonAalenFitter().fit(T, event_observed=E)
         self.hazard = naf.timeline, np.array(naf.smoothed_hazard_(bandwidth=self.bandwidth).values)[:,0]
         self.naf = naf
-
+        
         return self.survival
     
-    def plotSurvival(self, ax=None, time_range=None, **kwargs):
-        if time_range is not None:
-            ax= super().plotSurvival(ax=ax, time_range=time_range, **kwargs)
-        else:
-            if ax is None:
-                fig, ax = plt.subplots()
-            self.kmf.plot_survival_function(ax=ax, **kwargs)
-        return ax
+    # def plotSurvival(self, ax=None, time_range=None, title=None, xlabel=None, ylabel=None, **kwargs):
+    #     if time_range is not None:
+    #         ax = super().plotSurvival(ax=ax, time_range=time_range, title=title, xlabel=xlabel, ylabel=ylabel, **kwargs)
+    #     # else:
+    #     #     if ax is None:
+    #     #         fig, ax = plt.subplots()
+    #     #     self.kmf.plot_survival_function(ax=ax, **kwargs)
+    #     #     if xlabel is not None:
+    #     #         ax.set_xlabel(xlabel)
+    #     #     else:
+    #     #         ax.set_xlabel('Age')
+    #     #     if ylabel is not None:
+    #     #         ax.set_ylabel(ylabel)
+    #     #     if title is not None:
+    #     #         ax.set_title(title)
+    #     return ax
     
-    def plotHazard(self, ax=None, **kwargs):
-        if ax is None:
-            fig, ax = plt.subplots()
-        self.naf.plot_hazard(ax=ax, bandwidth=self.bandwidth, **kwargs)
-        return ax
+    # def plotHazard(self, ax=None, title=None, xlabel=None, ylabel=None, **kwargs):
+    #     if ax is None:
+    #         fig, ax = plt.subplots()
+    #     self.naf.plot_hazard(ax=ax, bandwidth=self.bandwidth, **kwargs)
+    #     ax.set_yscale('log')
+    #     if xlabel is not None:
+    #         ax.set_xlabel(xlabel)
+    #     else:
+    #         ax.set_xlabel('Age')
+    #     if ylabel is not None:
+    #         ax.set_ylabel(ylabel)
+    #     if title is not None:
+    #         ax.set_title(title)
+    #     return ax
     
     def get_median_lifetime(self):
         return self.kmf.median_survival_time_
