@@ -508,14 +508,11 @@ from .legacy_classes import (
     SR_karin_human_GWTW, SRNDK_GWTW, SRND_Peckle_GWTW,
     SR_envelope
 )
-from .distance_metrics import baysian_dirichlet_distance, distance, ks_test, trim_to_range
+from .distance_metrics import baysianDistance, baysian_dirichlet_distance, distance, ks_test, trim_to_range
 from .utils import (
     gompetz_hazard, get_survival_from_hazard, get_dimless_groups,
     get_hazard_from_survival, karin_params, karin_mice_params
 )
 
 # Keep old name for backward compatibility with deprecation warning
-def baysianDistance(*args, **kwargs):
-    import warnings
-    warnings.warn("baysianDistance is deprecated. Use baysian_dirichlet_distance instead.", DeprecationWarning, stacklevel=2)
-    return baysian_dirichlet_distance(*args, **kwargs)
+# baysianDistance is imported from distance_metrics.py
