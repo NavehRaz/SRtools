@@ -1112,42 +1112,6 @@ class Life_table(dtds.Dataset):
         else:
             return survival_values
     
-    def get_bin_probabilities(self, include_tail=True):
-        """
-        Extract bin probabilities from life table for likelihood calculations.
-        
-        Parameters:
-        -----------
-        include_tail : bool
-            If True, include tail bin if present
-            
-        Returns:
-        --------
-        bin_edges : ndarray
-            Age bin edges (self.ages)
-        probabilities : ndarray
-            Probability mass in each bin: p_i = S(t_i-1) - S(t_i)
-            If include_tail and tail_bin exists, includes tail probability
-        """
-        t, s = self.survival
-        probs = []
-        
-        for i in range(len(t) - 1):
-            probs.append(s[i] - s[i+1])
-        
-        # Handle tail bin if present
-        if include_tail and self.tail_bin is not None:
-            probs.append(s[-1])  # All remaining mass
-        
-        probs = np.array(probs)
-        
-        # Validate
-        total = np.sum(probs)
-        if not np.isclose(total, 1.0, atol=1e-6):
-            if self.warnings_enabled:
-                print(f"Warning: Bin probabilities sum to {total}, not 1.0")
-        
-        return self.ages, probs
     
     # =========================================================================
     # Methods that raise NotImplementedError

@@ -379,7 +379,11 @@ class JointPosterior(su.Posterior):
         if ds is not None:
             for dataset, ds_label in zip(ds, ds_labels):
                 ML = round_value(dataset.getMedianLifetime()*time_rescale)
-                mCI = dataset.getMedianLifetimeCI()
+                import SRtools.life_table as life_table
+                if isinstance(dataset, life_table.Life_table):
+                    mCI = [0,0]
+                else:
+                    mCI = dataset.getMedianLifetimeCI()                
                 mCI = [round_value(val*time_rescale) for val in mCI]
                 mCI = [ML-mCI[0],ML+mCI[1]]
                 maxLS = round_value(dataset.getMaxLifetime()*time_rescale)

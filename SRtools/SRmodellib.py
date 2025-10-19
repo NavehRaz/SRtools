@@ -1493,8 +1493,8 @@ def baysian_dirichlet_distance(sr1, sr2, time_range=None, dt=1, debug=False, lam
     
     Parameters:
     -----------
-    sr1 : SR object
-        The data SR object (observations)
+    sr1 : SR object or Life_table
+        The data object (observations or life table)
     sr2 : SR object
         The simulation SR object (model to evaluate)
     time_range : tuple, optional
@@ -1512,8 +1512,66 @@ def baysian_dirichlet_distance(sr1, sr2, time_range=None, dt=1, debug=False, lam
     float
         Log-likelihood of the data under the Dirichlet-multinomial model
     """
+    from .life_table import Life_table
     
-    # Get death times and events for sr2 (simulation)
+    # Check if sr1 is a Life_table
+    is_life_table = isinstance(sr1, Life_table)
+    
+    if is_life_table:
+        # Use life table's ages as bin edges
+        bins = sr1.ages.copy()
+        
+        # Filter bins to time_range if provided
+        if time_range is not None:
+            mask_bins = (bins >= time_range[0]) & (bins <= time_range[1])
+            bins = bins[mask_bins]
+            if len(bins) < 2:
+                return -np.inf
+        
+        # Extract death counts from life table: y_i = n_alive[i] - n_alive[i+1]
+        y_bins = []
+        for i in range(len(bins) - 1):
+            # Find indices in original sr1.n_alive
+            idx_i = np.where(sr1.ages == bins[i])[0][0]
+            idx_ip1 = np.where(sr1.ages == bins[i+1])[0][0]
+            y_bins.append(sr1.n_alive[idx_i] - sr1.n_alive[idx_ip1])
+        
+        y = np.array(y_bins)
+        m = np.sum(y)  # Total deaths (not censored)
+        
+        # Handle censored data from tail_bin
+        if sr1.tail_bin is not None:
+            # Find if tail_bin age is within range
+            tail_age = sr1.tail_bin['age']
+            if time_range is None or (tail_age >= time_range[0] and tail_age <= time_range[1]):
+                # All n_alive at last age are right-censored
+                idx_last = np.where(sr1.ages == bins[-1])[0][0]
+                censored1 = np.full(sr1.n_alive[idx_last], bins[-1])  # All censored at last bin edge
+            else:
+                censored1 = np.array([])
+        else:
+            censored1 = np.array([])
+        
+        died1 = np.array([])  # No individual death times from life table
+        events1 = np.array([])
+        
+    else:
+        # Regular dataset path - existing logic
+        # Get death times and events for sr1 (data)
+        death_times1 = sr1.getDeathTimes()
+        events1 = sr1.events
+        
+        # Restrict to time_range if provided
+        if time_range is not None:
+            mask1 = (death_times1 >= time_range[0]) & (death_times1 <= time_range[1])
+            events1 = events1[mask1]
+            death_times1 = death_times1[mask1]
+        
+        died1 = death_times1[events1 == 1]
+        censored1 = death_times1[events1 == 0]
+        m = len(died1)
+    
+    # Get death times and events for sr2 (simulation) - SAME FOR BOTH PATHS
     death_times2 = sr2.getDeathTimes()
     events2 = sr2.events
     
@@ -1527,51 +1585,46 @@ def baysian_dirichlet_distance(sr1, sr2, time_range=None, dt=1, debug=False, lam
     if len(death_times2) <= 5:
         return -np.inf
     
-    # Get death times and events for sr1 (data)
-    death_times1 = sr1.getDeathTimes()
-    events1 = sr1.events
-    
-    # Restrict to time_range if provided
-    if time_range is not None:
-        mask1 = (death_times1 >= time_range[0]) & (death_times1 <= time_range[1])
-        events1 = events1[mask1]
-        death_times1 = death_times1[mask1]
-    
     # ============================================================================
     # Step 1: Define bins
     # ============================================================================
-    # If dt is an array, use it as bin edges directly
-    if isinstance(dt, (list, tuple, np.ndarray)):
-        bins = np.array(dt)
+    if is_life_table:
+        # For Life_table, bins are already defined above
         if debug:
-            print(f"Using provided bin edges: {bins}")
+            print(f"Using life table ages as bins: {bins}")
     else:
-        # dt is a scalar - create bins with this bin size
-        # Determine the range for binning based on data (sr1)
-        if time_range is not None:
-            min_time = time_range[0]
-            max_time_candidate = time_range[1]
+        # If dt is an array, use it as bin edges directly
+        if isinstance(dt, (list, tuple, np.ndarray)):
+            bins = np.array(dt)
+            if debug:
+                print(f"Using provided bin edges: {bins}")
         else:
-            min_time = 0
-            max_time_candidate = np.inf
-        
-        # Check the maximum death time in data (sr1)
-        max_death_time_data = np.max(death_times1) if len(death_times1) > 0 else 0
-        
-        # If time_range is None or its right end is bigger than max death time in data,
-        # use max death time from data
-        if max_time_candidate > max_death_time_data:
-            max_time = max_death_time_data
-        else:
-            max_time = max_time_candidate
-        
-        # Create bins from min_time to max_time with step dt
-        # The last bin will be [max_time, +inf) to capture overflow
-        bins = np.arange(min_time, max_time + dt, dt)
-        
-        if debug:
-            print(f"Created bins from {min_time} to {max_time} with dt={dt}")
-            print(f"Bins: {bins}")
+            # dt is a scalar - create bins with this bin size
+            # Determine the range for binning based on data (sr1)
+            if time_range is not None:
+                min_time = time_range[0]
+                max_time_candidate = time_range[1]
+            else:
+                min_time = 0
+                max_time_candidate = np.inf
+            
+            # Check the maximum death time in data (sr1)
+            max_death_time_data = np.max(death_times1) if len(death_times1) > 0 else 0
+            
+            # If time_range is None or its right end is bigger than max death time in data,
+            # use max death time from data
+            if max_time_candidate > max_death_time_data:
+                max_time = max_death_time_data
+            else:
+                max_time = max_time_candidate
+            
+            # Create bins from min_time to max_time with step dt
+            # The last bin will be [max_time, +inf) to capture overflow
+            bins = np.arange(min_time, max_time + dt, dt)
+            
+            if debug:
+                print(f"Created bins from {min_time} to {max_time} with dt={dt}")
+                print(f"Bins: {bins}")
     
     # The tail threshold T is the last bin edge
     # Everything >= T goes into the overflow bin
@@ -1611,18 +1664,21 @@ def baysian_dirichlet_distance(sr1, sr2, time_range=None, dt=1, debug=False, lam
     # ============================================================================
     # Step 3: Compute counts in bins for data (sr1)
     # ============================================================================
-    # For non-censored data (events1 == 1), histogram their death times
-    died1 = death_times1[events1 == 1]
-    
-    y_bins, _ = np.histogram(died1, bins=bins)
-    y_tail = np.sum(died1 >= T)
-    
-    if len(y_bins) > 0:
-        y = np.concatenate([y_bins[:-1], [y_bins[-1] + y_tail]])
+    if is_life_table:
+        # For Life_table, y is already computed above from n_alive differences
+        # y and m are already set in the Life_table branch above
+        pass
     else:
-        y = np.array([y_tail])
-    
-    m = len(died1)  # Total number of non-censored events in data
+        # For regular datasets, histogram death times
+        y_bins, _ = np.histogram(died1, bins=bins)
+        y_tail = np.sum(died1 >= T)
+        
+        if len(y_bins) > 0:
+            y = np.concatenate([y_bins[:-1], [y_bins[-1] + y_tail]])
+        else:
+            y = np.array([y_tail])
+        
+        m = len(died1)  # Total number of non-censored events in data
     
     if debug:
         print(f"Data counts in bins (y): {y}")
@@ -1661,8 +1717,8 @@ def baysian_dirichlet_distance(sr1, sr2, time_range=None, dt=1, debug=False, lam
     # ============================================================================
     # Step 5: Handle censored data
     # ============================================================================
-    # Censored observations: events1 == 0
-    censored1 = death_times1[events1 == 0]
+    # Censored observations: events1 == 0 (or tail_bin for Life_table)
+    # censored1 is already computed above for both Life_table and regular datasets
     
     if len(censored1) > 0:
         # Compute alpha_prime = alpha + y (posterior parameters)
@@ -1764,389 +1820,12 @@ def baysian_dirichlet_distance(sr1, sr2, time_range=None, dt=1, debug=False, lam
     return total_logL
 
 
-def life_table_multinomial_likelihood(life_table, simulated_death_times, 
-                                     time_range=None, debug=False):
-    """
-    Compute multinomial log-likelihood of simulated death times given a life table.
-    
-    Steps:
-    1. Extract bin edges from life_table.ages and survival curve S(t)
-    2. Handle time_range filtering (conditional likelihood)
-    3. Compute bin probabilities
-    4. Always include tail bin (critical for MCMC stability)
-    5. Bin the simulated death times into counts s_i
-    6. Return log L = sum(s_i * log(p_i^win))
-    
-    Parameters:
-    -----------
-    life_table : Life_table
-        Life table object with ages and survival data
-    simulated_death_times : array-like
-        Array of simulated death times to evaluate
-    time_range : tuple or None
-        If provided, only use deaths in [t1, t2) range
-    debug : bool
-        If True, print detailed debug information
-        
-    Returns:
-    --------
-    log_likelihood : float
-        Multinomial log-likelihood of the simulated data
-    """
-    from scipy.special import gammaln
-    
-    # Convert to numpy arrays
-    simulated_death_times = np.array(simulated_death_times)
-    
-    # Get bin edges and probabilities from life table
-    bin_edges, probabilities = life_table.get_bin_probabilities(include_tail=True)
-    
-    if debug:
-        print(f"Life table bin edges: {bin_edges}")
-        print(f"Bin probabilities: {probabilities}")
-        print(f"Probability sum: {np.sum(probabilities):.6f}")
-    
-    # Handle time_range filtering
-    if time_range is not None:
-        t1, t2 = time_range
-        
-        # Filter simulated death times to the range
-        mask = (simulated_death_times >= t1) & (simulated_death_times < t2)
-        filtered_death_times = simulated_death_times[mask]
-        
-        if debug:
-            print(f"Time range filtering: [{t1}, {t2})")
-            print(f"Original deaths: {len(simulated_death_times)}, Filtered: {len(filtered_death_times)}")
-        
-        # Recompute probabilities for the time window
-        # Get survival values at bin edges
-        t_surv, s_surv = life_table.survival
-        
-        # Find indices for t1 and t2 in bin_edges
-        idx_t1 = np.searchsorted(bin_edges, t1, side='right') - 1
-        idx_t2 = np.searchsorted(bin_edges, t2, side='right')
-        
-        # Compute window normalization factor
-        s_t1 = np.interp(t1, t_surv, s_surv)
-        s_t2 = np.interp(t2, t_surv, s_surv)
-        window_mass = s_t1 - s_t2
-        
-        if window_mass <= 0:
-            if debug:
-                print("Warning: Window mass <= 0, returning -inf")
-            return -np.inf
-        
-        # Create new bin edges including t1, t2
-        new_edges = []
-        new_probs = []
-        
-        # Add t1 if not already in bin_edges
-        if t1 not in bin_edges:
-            new_edges.append(t1)
-        
-        # Add all bin edges in [t1, t2)
-        for i, edge in enumerate(bin_edges):
-            if t1 <= edge < t2:
-                new_edges.append(edge)
-        
-        # Add t2 if not already in bin_edges
-        if t2 not in bin_edges:
-            new_edges.append(t2)
-        
-        new_edges = np.array(new_edges)
-        new_edges = np.unique(new_edges)  # Remove duplicates
-        
-        # Recompute probabilities for new bins
-        for i in range(len(new_edges) - 1):
-            left = new_edges[i]
-            right = new_edges[i + 1]
-            
-            # Get survival at bin boundaries
-            s_left = np.interp(left, t_surv, s_surv)
-            s_right = np.interp(right, t_surv, s_surv)
-            
-            # Bin probability
-            prob = s_left - s_right
-            new_probs.append(prob)
-        
-        # Normalize by window mass
-        new_probs = np.array(new_probs) / window_mass
-        
-        bin_edges = new_edges
-        probabilities = new_probs
-        simulated_death_times = filtered_death_times
-        
-        if debug:
-            print(f"New bin edges: {bin_edges}")
-            print(f"New probabilities: {new_probs}")
-            print(f"New probability sum: {np.sum(new_probs):.6f}")
-    
-    # Ensure probabilities are positive (critical for MCMC stability)
-    epsilon = 1e-10
-    probabilities = np.maximum(probabilities, epsilon)
-    
-    # Check for zero probabilities (except tail bin)
-    zero_probs = np.where(probabilities < epsilon)[0]
-    if len(zero_probs) > 0 and debug:
-        print(f"Warning: {len(zero_probs)} bins have near-zero probability")
-    
-    # Bin the simulated death times
-    bin_counts, _ = np.histogram(simulated_death_times, bins=bin_edges)
-    
-    # Handle tail bin: add all deaths >= last_age
-    if len(bin_edges) > 0:
-        last_age = bin_edges[-1]
-        tail_count = np.sum(simulated_death_times >= last_age)
-        if tail_count > 0:
-            # Add tail count to the last bin
-            bin_counts[-1] += tail_count
-    
-    # Ensure bin_counts has same length as probabilities
-    # If we have tail bin in probabilities but not in bin_counts, add it
-    if len(probabilities) > len(bin_counts):
-        # Add tail count as separate bin
-        if len(bin_edges) > 0:
-            last_age = bin_edges[-1]
-            tail_count = np.sum(simulated_death_times >= last_age)
-            bin_counts = np.append(bin_counts, tail_count)
-            # Remove tail count from last regular bin to avoid double counting
-            if len(bin_counts) > 1:
-                bin_counts[-2] -= tail_count
-    
-    if debug:
-        print(f"Bin counts: {bin_counts}")
-        print(f"Total deaths binned: {np.sum(bin_counts)}")
-        print(f"Total simulated deaths: {len(simulated_death_times)}")
-    
-    # Compute multinomial log-likelihood
-    # log L = sum(s_i * log(p_i)) + log(n! / prod(s_i!))
-    # The factorial term is constant for fixed n, so we omit it for likelihood ratios
-    log_likelihood = np.sum(bin_counts * np.log(probabilities))
-    
-    if debug:
-        print(f"Log-likelihood: {log_likelihood:.6f}")
-    
-    return log_likelihood
-
-
-def life_table_dirichlet_likelihood(life_table, simulated_death_times,
-                                   N_tab=None, lambda_smooth=0.5,
-                                   time_range=None, debug=False):
-    """
-    Compute Dirichlet-multinomial log-likelihood accounting for life table uncertainty.
-    
-    Steps:
-    1. Extract bin edges and probabilities as in multinomial version
-    2. Compute alpha parameters (smart default from n_alive differences)
-    3. Bin simulated death times to get counts s_i
-    4. Return Dirichlet-multinomial log-likelihood using gammaln formula
-    
-    Parameters:
-    -----------
-    life_table : Life_table
-        Life table object with ages and survival data
-    simulated_death_times : array-like
-        Array of simulated death times to evaluate
-    N_tab : float or None
-        Effective sample size for life table. If None, auto-compute from n_alive
-    lambda_smooth : float
-        Smoothing parameter for Dirichlet prior
-    time_range : tuple or None
-        If provided, only use deaths in [t1, t2) range
-    debug : bool
-        If True, print detailed debug information
-        
-    Returns:
-    --------
-    log_likelihood : float
-        Dirichlet-multinomial log-likelihood of the simulated data
-    """
-    from scipy.special import gammaln
-    
-    # Convert to numpy arrays
-    simulated_death_times = np.array(simulated_death_times)
-    
-    # Get bin edges and probabilities from life table
-    bin_edges, probabilities = life_table.get_bin_probabilities(include_tail=True)
-    
-    # Handle time_range filtering (same as multinomial)
-    if time_range is not None:
-        t1, t2 = time_range
-        
-        # Filter simulated death times to the range
-        mask = (simulated_death_times >= t1) & (simulated_death_times < t2)
-        filtered_death_times = simulated_death_times[mask]
-        
-        # Recompute probabilities for the time window (same logic as multinomial)
-        t_surv, s_surv = life_table.survival
-        s_t1 = np.interp(t1, t_surv, s_surv)
-        s_t2 = np.interp(t2, t_surv, s_surv)
-        window_mass = s_t1 - s_t2
-        
-        if window_mass <= 0:
-            if debug:
-                print("Warning: Window mass <= 0, returning -inf")
-            return -np.inf
-        
-        # Create new bin edges and probabilities (same as multinomial)
-        new_edges = []
-        if t1 not in bin_edges:
-            new_edges.append(t1)
-        for edge in bin_edges:
-            if t1 <= edge < t2:
-                new_edges.append(edge)
-        if t2 not in bin_edges:
-            new_edges.append(t2)
-        
-        new_edges = np.array(new_edges)
-        new_edges = np.unique(new_edges)
-        
-        new_probs = []
-        for i in range(len(new_edges) - 1):
-            left = new_edges[i]
-            right = new_edges[i + 1]
-            s_left = np.interp(left, t_surv, s_surv)
-            s_right = np.interp(right, t_surv, s_surv)
-            prob = (s_left - s_right) / window_mass
-            new_probs.append(prob)
-        
-        bin_edges = new_edges
-        probabilities = np.array(new_probs)
-        simulated_death_times = filtered_death_times
-    
-    # Compute alpha parameters
-    if N_tab is not None:
-        # User provided N_tab
-        alpha = N_tab * probabilities + lambda_smooth
-        if debug:
-            print(f"Using provided N_tab={N_tab}, lambda={lambda_smooth}")
-    else:
-        # Smart default: compute from n_alive differences
-        n_alive = life_table.n_alive
-        
-        # Compute death counts d_i = n_alive[i] - n_alive[i+1]
-        death_counts = []
-        for i in range(len(n_alive) - 1):
-            death_counts.append(n_alive[i] - n_alive[i + 1])
-        
-        # Add tail count if present
-        if life_table.tail_bin is not None:
-            death_counts.append(n_alive[-1])  # Remaining alive in last age group
-        
-        death_counts = np.array(death_counts)
-        
-        # Scale to match probabilities and add smoothing
-        total_deaths = np.sum(death_counts)
-        if total_deaths > 0:
-            alpha = death_counts + lambda_smooth
-        else:
-            # Fallback to uniform prior
-            alpha = np.ones_like(probabilities) + lambda_smooth
-        
-        if debug:
-            print(f"Auto-computed alpha from n_alive differences")
-            print(f"Death counts: {death_counts}")
-    
-    if debug:
-        print(f"Alpha parameters: {alpha}")
-        print(f"Alpha sum: {np.sum(alpha):.6f}")
-    
-    # Bin the simulated death times
-    bin_counts, _ = np.histogram(simulated_death_times, bins=bin_edges)
-    
-    # Handle tail bin: add all deaths >= last_age
-    if len(bin_edges) > 0:
-        last_age = bin_edges[-1]
-        tail_count = np.sum(simulated_death_times >= last_age)
-        if tail_count > 0:
-            bin_counts[-1] += tail_count
-    
-    # Ensure bin_counts has same length as probabilities
-    # If we have tail bin in probabilities but not in bin_counts, add it
-    if len(probabilities) > len(bin_counts):
-        # Add tail count as separate bin
-        if len(bin_edges) > 0:
-            last_age = bin_edges[-1]
-            tail_count = np.sum(simulated_death_times >= last_age)
-            bin_counts = np.append(bin_counts, tail_count)
-            # Remove tail count from last regular bin to avoid double counting
-            if len(bin_counts) > 1:
-                bin_counts[-2] -= tail_count
-    
-    if debug:
-        print(f"Bin counts: {bin_counts}")
-        print(f"Total deaths binned: {np.sum(bin_counts)}")
-    
-    # Compute Dirichlet-multinomial log-likelihood
-    # log L = gammaln(alpha_0) - gammaln(alpha_0 + n) + 
-    #         sum[gammaln(s_i + alpha_i) - gammaln(alpha_i)]
-    alpha_0 = np.sum(alpha)
-    n = np.sum(bin_counts)
-    
-    if n == 0:
-        # No deaths observed
-        log_likelihood = 0.0
-    else:
-        # Compute the Dirichlet-multinomial log-likelihood
-        term1 = gammaln(alpha_0) - gammaln(alpha_0 + n)
-        term2 = np.sum(gammaln(bin_counts + alpha) - gammaln(alpha))
-        log_likelihood = term1 + term2
-    
-    if debug:
-        print(f"Dirichlet-multinomial log-likelihood: {log_likelihood:.6f}")
-    
-    return log_likelihood
 
 
 def distance(sr1, sr2, metric='baysian',time_range = None,**kwargs):
     """
     Calculate the distance between two SR models or SR model and equivalent data object according to different metrics.
-    Auto-detects if sr1 or sr2 is a Life_table instance and routes to appropriate likelihood calculation.
     """
-    from .life_table import Life_table
-    
-    # Auto-detect Life_table instances
-    is_sr1_lifetable = isinstance(sr1, Life_table)
-    is_sr2_lifetable = isinstance(sr2, Life_table)
-    
-    # Route to Life_table-specific methods for 'baysian' and 'dirichlet' metrics
-    if metric in ['baysian', 'dirichlet']:
-        if is_sr1_lifetable and not is_sr2_lifetable:
-            # sr1 is life table, sr2 is simulated data
-            if metric == 'baysian':
-                return life_table_multinomial_likelihood(sr1, sr2.getDeathTimes(), 
-                                                        time_range=time_range,
-                                                        debug=kwargs.get('debug', False))
-            else:  # metric == 'dirichlet'
-                return life_table_dirichlet_likelihood(sr1, sr2.getDeathTimes(),
-                                                      N_tab=kwargs.get('N_tab', None),
-                                                      lambda_smooth=kwargs.get('lambda_smooth', 0.5),
-                                                      time_range=time_range,
-                                                      debug=kwargs.get('debug', False))
-        
-        elif is_sr2_lifetable and not is_sr1_lifetable:
-            # sr2 is life table, sr1 is simulated data (reversed convention)
-            # Issue warning about convention
-            if Life_table.warnings_enabled:
-                print("Warning: Life table is sr2 (second argument). "
-                      "Convention: sr1=data/life_table, sr2=simulation")
-            # Swap and call directly (avoid recursive call)
-            if metric == 'baysian':
-                return life_table_multinomial_likelihood(sr2, sr1.getDeathTimes(), 
-                                                        time_range=time_range,
-                                                        debug=kwargs.get('debug', False))
-            else:  # metric == 'dirichlet'
-                return life_table_dirichlet_likelihood(sr2, sr1.getDeathTimes(),
-                                                      N_tab=kwargs.get('N_tab', None),
-                                                      lambda_smooth=kwargs.get('lambda_smooth', 0.5),
-                                                      time_range=time_range,
-                                                      debug=kwargs.get('debug', False))
-        
-        elif is_sr1_lifetable and is_sr2_lifetable:
-            raise ValueError("Both arguments are Life_table instances. "
-                           "Need one Life_table and one simulation (Dataset/SR).")
-    
-    # Continue with existing logic for non-Life_table cases
     if metric == 'survival':
         #calculate the mse between the two survival curves
         t1,s1 = sr1.getSurvival()
