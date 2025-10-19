@@ -166,3 +166,124 @@ def index_to_param(index):
         return 'external_hazard'
     else:
         raise ValueError(f"Unknown index: {index}")
+
+
+# Additional utility functions moved from SRmodellib.py
+
+def gompetz_hazard(t,xc,k,beta,eps,eta):
+    """
+    Calculate Gompertz hazard function.
+    
+    Parameters:
+    -----------
+    t : array-like
+        Time values
+    xc : float
+        Critical damage threshold
+    k : float
+        Saturation parameter (kappa)
+    beta : float
+        Damage removal parameter
+    eps : float
+        Noise parameter (epsilon)
+    eta : float
+        Damage production parameter
+    
+    Returns:
+    --------
+    array-like
+        Hazard values
+    """
+    p = k*beta/eps
+    a = (k+xc)**p
+    b = (k*beta)**(-p-0.5)
+    c = (beta-eta*t)**(p+1)
+    e = np.exp(((k+xc)*eta*t-(xc*beta))/eps)
+    gh = a*b*c*e
+    return gh   
+
+def get_survival_from_hazard(h,t):
+    """
+    Calculate survival function from hazard function.
+    
+    Parameters:
+    -----------
+    h : array-like
+        Hazard values
+    t : array-like
+        Time values
+        
+    Returns:
+    --------
+    array-like
+        Survival probabilities
+    """
+    dt = np.zeros_like(t)
+    dt[1:] = t[1:]-t[0:-1]
+    ih = np.cumsum(h*dt)
+    s = np.exp(-ih)
+    return s
+
+def get_dimless_groups(eta,beta,kappa,epsilon,xc):
+    """
+    Return the dimensionless groups scaled by kappa.
+    
+    Parameters:
+    -----------
+    eta : float
+        Damage production parameter
+    beta : float
+        Damage removal parameter
+    kappa : float
+        Saturation parameter
+    epsilon : float
+        Noise parameter
+    xc : float
+        Critical damage threshold
+        
+    Returns:
+    --------
+    tuple
+        Dimensionless groups (D31, D32, D21, Dx)
+    """
+    D31 = beta**2 /(kappa*eta)
+    D32 = beta*epsilon/(eta*(kappa**2))
+    D21 = D31/D32
+    Dx = xc/kappa
+    return D31,D32,D21,Dx
+
+def get_hazard_from_survival(t,survival):
+    """
+    Utility function to calculate the hazard function from the survival function.
+    
+    Parameters:
+    -----------
+    t : array-like
+        Time values
+    survival : array-like
+        Survival probabilities
+        
+    Returns:
+    --------
+    tuple
+        (time, hazard) arrays
+    """
+    #first index where the survival is 0
+    ind = np.argmax(survival==0)
+    ind = ind if ind>0 and ind<len(survival) else len(survival)-1
+    t = t[:ind]
+    if len(t)<=1:
+        return np.array([0]),np.array([0])
+    survival = survival[:ind]
+    # mid_survival = (survival[1:]+survival[:-1])/2
+    h = -(np.diff(survival)/np.diff(t))/survival[:-1]
+    h = np.concatenate((h,[h[-1]]))
+    return t,h
+
+def karin_params():
+    """Print Karin's standard parameters for human SR model."""
+    print('Karin params\n','eta = 0.49275, beta = 54.75, kappa = 0.5, epsilon = 51.83, xc = 17')
+
+def karin_mice_params():
+    """Print Karin's standard parameters for mice SR model."""
+    print('Karin mice params\n',f'eta = {0.084/365}, beta = {0.15}, kappa = 0.5, epsilon = 0.16, xc = 17')
