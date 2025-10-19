@@ -129,9 +129,6 @@ class SR(dtds.Dataset):
             #     raise ValueError('save_dist can only be used with memory_efficient=True')
             
             # Always set trajectories to None since trajectory functionality is disabled
-            self.trajectories = None
-            self.death_times = None
-
             
             # Keep parameter assignments for backward compatibility
             self.dist_years = dist_years
@@ -270,22 +267,22 @@ class SR(dtds.Dataset):
             "See SRtools.trajectory_analysis for future implementation."
         )
 
-    def plotHazard(self,smooth = True, linestyle='-',lw=0.6, ax=None,label='',kwargs={}):
-        label = label
-        if (smooth):
-            t,h = self.hazard
-        else:
-            t,h = self.hazard_not_smoothed
-        if ax is None:
+    # def plotHazard(self,smooth = True, linestyle='-',lw=0.6, ax=None,label='',kwargs={}):
+    #     label = label
+    #     if (smooth):
+    #         t,h = self.hazard
+    #     else:
+    #         t,h = self.hazard_not_smoothed
+    #     if ax is None:
 
-            import matplotlib.pyplot as plt
-            plt.plot(t,h,linewidth=lw,linestyle=linestyle,label = label)
-            plt.legend()
-        else:
-            ax.plot(t,h,linewidth=lw,linestyle=linestyle,label = label,**kwargs)
-        ax.legend()
+    #         import matplotlib.pyplot as plt
+    #         plt.plot(t,h,linewidth=lw,linestyle=linestyle,label = label)
+    #         plt.legend()
+    #     else:
+    #         ax.plot(t,h,linewidth=lw,linestyle=linestyle,label = label,**kwargs)
+    #     ax.legend()
 
-        return   
+    #     return   
 
     
 
