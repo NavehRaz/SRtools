@@ -69,6 +69,7 @@ class SR(dtds.Dataset):
             if nsteps <((t_end-t_start) and natural_units):
                 raise ValueError('number of time steps should be greater then the number of time units of the simulation') 
             self.natural_units = natural_units
+            self.properties ={}
             self.smoothing =smoothing
             self.tscale = tscale
             self.eta = eta
