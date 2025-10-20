@@ -243,7 +243,7 @@ def baysian_dirichlet_distance(sr1, sr2, time_range=None, dt=1, debug=False, lam
             if time_range is None or (tail_age >= time_range[0] and tail_age <= time_range[1]):
                 # All n_alive at last age are right-censored
                 idx_last = np.where(sr1.ages == bins[-1])[0][0]
-                censored1 = np.full(sr1.n_alive[idx_last], bins[-1])  # All censored at last bin edge
+                censored1 = np.full(int(sr1.n_alive[idx_last]), bins[-1])  # All censored at last bin edge
             else:
                 censored1 = np.array([])
         else:
