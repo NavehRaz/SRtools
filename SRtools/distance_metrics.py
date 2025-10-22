@@ -221,7 +221,7 @@ def baysian_dirichlet_distance(sr1, sr2, time_range=None, dt=1, debug=False, lam
     float
         Log-likelihood of the data under the Dirichlet-multinomial model
     """
-    from statsmodels.nonparametric.kernel_density import KDEMultivariate
+    
     
     # Check if sr1 is a Life_table
     is_life_table = isinstance(sr1, Life_table)
@@ -245,30 +245,33 @@ def baysian_dirichlet_distance(sr1, sr2, time_range=None, dt=1, debug=False, lam
             idx_ip1 = np.where(sr1.ages == bins[i+1])[0][0]
             y_bins.append(sr1.n_alive[idx_i] - sr1.n_alive[idx_ip1])
         
-        y = np.array(y_bins)
+        y = np.array(y_bins, dtype=np.float32)  # Use float32 for memory efficiency
         m = np.sum(y)  # Total deaths (not censored)
         
         # Handle censored data from tail_bin
+        # OPTIMIZATION: Store only the count, not the full array
         if sr1.tail_bin is not None:
             # Find if tail_bin age is within range
             tail_age = sr1.tail_bin['age']
             if time_range is None or (tail_age >= time_range[0] and tail_age <= time_range[1]):
-                # All n_alive at last age are right-censored
-                idx_last = np.where(sr1.ages == bins[-1])[0][0]
-                censored1 = np.full(int(sr1.n_alive[idx_last]), bins[-1])  # All censored at last bin edge
+                # Use tail_bin n_alive (these are the censored individuals)
+                censored_count = int(sr1.tail_bin['n_alive'])  # Store count instead of full array
+                censored_age = tail_age
             else:
-                censored1 = np.array([])
+                censored_count = 0
+                censored_age = 0
         else:
-            censored1 = np.array([])
+            censored_count = 0
+            censored_age = 0
         
-        died1 = np.array([])  # No individual death times from life table
-        events1 = np.array([])
+        died1 = np.array([], dtype=np.float32)  # No individual death times from life table
+        events1 = np.array([], dtype=np.uint8)  # Use uint8 for binary events
         
     else:
         # Regular dataset path - existing logic
-        # Get death times and events for sr1 (data)
-        death_times1 = sr1.getDeathTimes()
-        events1 = sr1.events
+        # Get death times and events for sr1 (data) - convert to efficient types
+        death_times1 = sr1.getDeathTimes().astype(np.float32)  # Use float32 for memory efficiency
+        events1 = sr1.events.astype(np.uint8)  # Use uint8 for binary events
         
         # Restrict to time_range if provided
         if time_range is not None:
@@ -281,8 +284,8 @@ def baysian_dirichlet_distance(sr1, sr2, time_range=None, dt=1, debug=False, lam
         m = len(died1)
     
     # Get death times and events for sr2 (simulation) - SAME FOR BOTH PATHS
-    death_times2 = sr2.getDeathTimes()
-    events2 = sr2.events
+    death_times2 = sr2.getDeathTimes().astype(np.float32)  # Use float32 for memory efficiency
+    events2 = sr2.events.astype(np.uint8)  # Use uint8 for binary events
     
     # Restrict to time_range if provided
     if time_range is not None:
@@ -354,7 +357,7 @@ def baysian_dirichlet_distance(sr1, sr2, time_range=None, dt=1, debug=False, lam
     died2 = death_times2[events2 == 1]
     
     # Use numpy histogram to count deaths in bins [edge_i, edge_{i+1})
-    c_bins, _ = np.histogram(died2, bins=bins)
+    c_bins, _ = np.histogram(died2, bins=bins.astype(np.float32))  # Convert bins to float32
     
     # Count deaths in the tail (overflow bin): deaths >= T
     # OPTIMIZATION 1: Avoid unnecessary array copies when time_range is provided
@@ -372,9 +375,9 @@ def baysian_dirichlet_distance(sr1, sr2, time_range=None, dt=1, debug=False, lam
         # Overflow bin gets count from c_tail
         # c_bins has length len(bins)-1, we add c_tail as a separate overflow bin
         # to create final array of length len(bins)
-        c = np.concatenate([c_bins, [c_tail]])
+        c = np.concatenate([c_bins, [c_tail]], dtype=np.float32)  # Use float32 for memory efficiency
     else:
-        c = np.array([c_tail])
+        c = np.array([c_tail], dtype=np.float32)  # Use float32 for memory efficiency
     
     # Total number of non-censored events in simulation
     n_sim = len(died2)
@@ -389,14 +392,14 @@ def baysian_dirichlet_distance(sr1, sr2, time_range=None, dt=1, debug=False, lam
     if is_life_table:
         # For Life_table, y is already computed above from n_alive differences
         # Append explicit tail as zero deaths; censor remaining alive at T handled below
-        y = np.concatenate([y, np.array([0])])
+        y = np.concatenate([y, np.array([0], dtype=np.float32)], dtype=np.float32)  # Use float32
         # m already set in life-table branch
     else:
         # For regular datasets, histogram death times into finite bins and add explicit tail
-        y_bins, _ = np.histogram(died1, bins=bins)
+        y_bins, _ = np.histogram(died1, bins=bins.astype(np.float32))  # Convert bins to float32
         y_tail = np.sum(died1 >= T)
 
-        y = np.concatenate([y_bins, [y_tail]])
+        y = np.concatenate([y_bins, [y_tail]], dtype=np.float32)  # Use float32
         m = len(died1)  # Total number of non-censored events in data
     
     if debug:
@@ -446,9 +449,16 @@ def baysian_dirichlet_distance(sr1, sr2, time_range=None, dt=1, debug=False, lam
     # Step 5: Handle censored data
     # ============================================================================
     # Censored observations: events1 == 0 (or tail_bin for Life_table)
-    # censored1 is already computed above for both Life_table and regular datasets
+    # For Life_table: use censored_count and censored_age
+    # For regular datasets: use censored1 array
     
-    if len(censored1) > 0:
+    has_censored = False
+    if is_life_table:
+        has_censored = censored_count > 0
+    else:
+        has_censored = len(censored1) > 0
+    
+    if has_censored:
         # Compute alpha_prime = alpha + y (posterior parameters)
         alpha_prime = alpha + y
         alpha0_prime = np.sum(alpha_prime)
@@ -456,24 +466,31 @@ def baysian_dirichlet_distance(sr1, sr2, time_range=None, dt=1, debug=False, lam
         # Compute tail cumulative sums: A[r] = sum_{i>=r} alpha_prime[i]
         # A[r] is the sum of alpha_prime from bin r to the last bin (inclusive)
         K = len(alpha_prime)  # Number of bins
-        A = np.zeros(K)
+        A = np.zeros(K, dtype=np.float32)  # Use float32 for memory efficiency
         for r in range(K):
             A[r] = np.sum(alpha_prime[r:])
         
         # Compute L[r]: right-censored mapping to the next bin (+1) and tail
-        L = np.zeros(K)
-        cens = np.asarray(censored1)
-        if cens.size > 0:
-            # Tail censored: c >= T
-            L[K - 1] += np.sum(cens >= T)
-            # Finite censored: c in [bins[r], bins[r+1)) contributes to L[r+1]
-            finite_mask = cens < T
-            if np.any(finite_mask):
-                idx = np.searchsorted(bins, cens[finite_mask], side='right') - 1
-                # Shift by +1
-                for r in (idx + 1):
-                    if 0 <= r < K:
-                        L[r] += 1
+        L = np.zeros(K, dtype=np.float32)  # Use float32 for memory efficiency
+        
+        if is_life_table:
+            # For Life_table: all censored are at the tail bin
+            if censored_count > 0 and censored_age >= T:
+                L[K - 1] += censored_count
+        else:
+            # For regular datasets: process censored array
+            cens = np.asarray(censored1)
+            if cens.size > 0:
+                # Tail censored: c >= T
+                L[K - 1] += np.sum(cens >= T)
+                # Finite censored: c in [bins[r], bins[r+1)) contributes to L[r+1]
+                finite_mask = cens < T
+                if np.any(finite_mask):
+                    idx = np.searchsorted(bins, cens[finite_mask], side='right') - 1
+                    # Shift by +1
+                    for r in (idx + 1):
+                        if 0 <= r < K:
+                            L[r] += 1
         
         # Compute censored likelihood contribution
         # Iterate from K down to 1 (in Python: from K-1 down to 0)
