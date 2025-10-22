@@ -227,8 +227,14 @@ def baysian_dirichlet_distance(sr1, sr2, time_range=None, dt=1, debug=False, lam
     is_life_table = isinstance(sr1, Life_table)
     
     if is_life_table:
-        # Use life table's ages as bin edges
+        # Use life table's ages as bin edges, INCLUDING tail bin age
         bins = sr1.ages.copy()
+        
+        # Add tail bin age if it exists and is not already included
+        if sr1.tail_bin is not None:
+            tail_age = sr1.tail_bin['age']
+            if tail_age not in bins:
+                bins = np.append(bins, tail_age)
         
         # Filter bins to time_range if provided
         if time_range is not None:
@@ -242,8 +248,14 @@ def baysian_dirichlet_distance(sr1, sr2, time_range=None, dt=1, debug=False, lam
         for i in range(len(bins) - 1):
             # Find indices in original sr1.n_alive
             idx_i = np.where(sr1.ages == bins[i])[0][0]
-            idx_ip1 = np.where(sr1.ages == bins[i+1])[0][0]
-            y_bins.append(sr1.n_alive[idx_i] - sr1.n_alive[idx_ip1])
+            
+            # Handle case where bins[i+1] might be the tail bin age
+            if bins[i+1] in sr1.ages:
+                idx_ip1 = np.where(sr1.ages == bins[i+1])[0][0]
+                y_bins.append(sr1.n_alive[idx_i] - sr1.n_alive[idx_ip1])
+            else:
+                # bins[i+1] is the tail bin age, so deaths = n_alive[idx_i] - tail_bin_n_alive
+                y_bins.append(sr1.n_alive[idx_i] - sr1.tail_bin['n_alive'])
         
         y = np.array(y_bins, dtype=np.float32)  # Use float32 for memory efficiency
         m = np.sum(y)  # Total deaths (not censored)
