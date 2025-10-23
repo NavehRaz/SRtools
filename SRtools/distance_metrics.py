@@ -65,12 +65,12 @@ def baysianDistance(sr1, sr2, time_range=None, dt=1, debug=False):
     DEPRECATED: This function is deprecated. Use baysian_dirichlet_distance instead.
     """
     import warnings
-    warnings.warn(
-        "baysianDistance is deprecated and will be removed in a future version. "
-        "Use baysian_dirichlet_distance instead.",
-        DeprecationWarning,
-        stacklevel=2
-    )
+    # warnings.warn(
+    #     "baysianDistance is deprecated and will be removed in a future version. "
+    #     "Use baysian_dirichlet_distance instead.",
+    #     DeprecationWarning,
+    #     stacklevel=2
+    # )
     
     from statsmodels.nonparametric.kernel_density import KDEMultivariate
     
@@ -845,6 +845,245 @@ def legacy_dirichlet_distance(sr1, sr2, time_range=None, dt=1, debug=False, lamb
     return total_logL
 
 
+def original_dirichlet_distance(sr1, sr2, time_range=None, dt=1, debug=False, lambda_smooth=0.5):
+    """
+    Original October 8th version of baysian_dirichlet_distance without any improvements.
+    
+    This function implements the exact original Dirichlet-multinomial model as it was
+    on October 8th, 2025, with the original bin creation logic and censored data handling.
+    
+    Parameters:
+    -----------
+    sr1 : SR object
+        The data SR object (observations)
+    sr2 : SR object
+        The simulation SR object (model to evaluate)
+    time_range : tuple, optional
+        Time range (min, max) to restrict analysis
+    dt : float or array-like
+        If scalar: bin size for creating histogram bins
+        If array: explicit bin edges to use
+    debug : bool
+        If True, print debugging information
+    lambda_smooth : float
+        Smoothing parameter (Jeffreys prior uses 0.5, Laplace uses 1.0)
+    
+    Returns:
+    --------
+    float
+        Log-likelihood of the data under the Dirichlet-multinomial model
+    """
+    
+    # Get death times and events for sr2 (simulation)
+    death_times2 = sr2.getDeathTimes()
+    events2 = sr2.events
+    
+    # Restrict to time_range if provided
+    if time_range is not None:
+        mask2 = (death_times2 >= time_range[0]) & (death_times2 <= time_range[1])
+        events2 = events2[mask2]
+        death_times2 = death_times2[mask2]
+    
+    # Check if we have enough data from simulation
+    if len(death_times2) <= 5:
+        return -np.inf
+    
+    # Get death times and events for sr1 (data)
+    death_times1 = sr1.getDeathTimes()
+    events1 = sr1.events
+    
+    # Restrict to time_range if provided
+    if time_range is not None:
+        mask1 = (death_times1 >= time_range[0]) & (death_times1 <= time_range[1])
+        events1 = events1[mask1]
+        death_times1 = death_times1[mask1]
+    
+    # ============================================================================
+    # Step 1: Define bins (original logic)
+    # ============================================================================
+    # If dt is an array, use it as bin edges directly
+    if isinstance(dt, (list, tuple, np.ndarray)):
+        bins = np.array(dt)
+        if debug:
+            print(f"Using provided bin edges: {bins}")
+    else:
+        # dt is a scalar - create bins with this bin size
+        # Determine the range for binning
+        if time_range is not None:
+            min_time = time_range[0]
+            max_time_candidate = time_range[1]
+        else:
+            min_time = 0
+            max_time_candidate = np.inf
+        
+        # Check the maximum death time in simulation
+        max_death_time_sim2 = np.max(death_times2) if len(death_times2) > 0 else 0
+        
+        # If time_range is None or its right end is bigger than max death time in sim2,
+        # use max death time from sim2
+        if max_time_candidate > max_death_time_sim2:
+            max_time = max_death_time_sim2
+        else:
+            max_time = max_time_candidate
+        
+        # Create bins from min_time to max_time with step dt
+        # The last bin will be [max_time, +inf) to capture overflow
+        bins = np.arange(min_time, max_time + dt, dt)
+        
+        if debug:
+            print(f"Created bins from {min_time} to {max_time} with dt={dt}")
+            print(f"Bins: {bins}")
+    
+    # The tail threshold T is the last bin edge
+    # Everything >= T goes into the overflow bin
+    T = bins[-1]
+    
+    # ============================================================================
+    # Step 2: Compute counts in bins for simulation data (sr2)
+    # ============================================================================
+    # For non-censored (events2 == 1), histogram their death times
+    died2 = death_times2[events2 == 1]
+    
+    # Use numpy histogram to count deaths in bins [edge_i, edge_{i+1})
+    c_bins, _ = np.histogram(died2, bins=bins)
+    
+    # Count deaths in the tail (overflow bin): deaths >= T
+    c_tail = np.sum(died2 >= T)
+    
+    # The total number of bins is len(bins) (including the overflow bin)
+    # We fold the tail count into the last bin
+    # c_bins has length len(bins)-1. We need to add the overflow bin.
+    # According to pseudocode: fold tail into last bin
+    if len(c_bins) > 0:
+        # Overflow bin gets count from c_tail
+        # Note: c_bins[-1] already contains counts in [bins[-2], bins[-1])
+        # We add counts >= bins[-1] to create the final overflow bin
+        c = np.concatenate([c_bins[:-1], [c_bins[-1] + c_tail]])
+    else:
+        c = np.array([c_tail])
+    
+    # Total number of non-censored events in simulation
+    n_sim = len(died2)
+    
+    if debug:
+        print(f"Simulation counts in bins (c): {c}")
+        print(f"Total simulation events (n_sim): {n_sim}")
+    
+    # ============================================================================
+    # Step 3: Compute counts in bins for data (sr1)
+    # ============================================================================
+    # For non-censored data (events1 == 1), histogram their death times
+    died1 = death_times1[events1 == 1]
+    
+    y_bins, _ = np.histogram(died1, bins=bins)
+    y_tail = np.sum(died1 >= T)
+    
+    if len(y_bins) > 0:
+        y = np.concatenate([y_bins[:-1], [y_bins[-1] + y_tail]])
+    else:
+        y = np.array([y_tail])
+    
+    m = len(died1)  # Total number of non-censored events in data
+    
+    if debug:
+        print(f"Data counts in bins (y): {y}")
+        print(f"Total data events (m): {m}")
+    
+    # ============================================================================
+    # Step 4: Compute Dirichlet-multinomial likelihood for non-censored data
+    # ============================================================================
+    # alpha = c + lambda_smooth
+    alpha = c + lambda_smooth
+    A0 = np.sum(alpha)
+    
+    # Dirichlet-multinomial log-likelihood formula:
+    # log L = gammaln(A0) - gammaln(m + A0) + sum(gammaln(y + alpha) - gammaln(alpha))
+    logL_uncensored = (gammaln(A0) - gammaln(m + A0) + 
+                       np.sum(gammaln(y + alpha) - gammaln(alpha)))
+    
+    if debug:
+        print(f"alpha = c + lambda: {alpha}")
+        print(f"A0 = sum(alpha): {A0}")
+        print(f"Log-likelihood (uncensored): {logL_uncensored}")
+    
+    # ============================================================================
+    # Step 5: Handle censored data (original logic)
+    # ============================================================================
+    # Censored observations: events1 == 0
+    censored1 = death_times1[events1 == 0]
+    
+    if len(censored1) > 0:
+        # Compute alpha_prime = alpha + y (posterior parameters)
+        alpha_prime = alpha + y
+        alpha0_prime = np.sum(alpha_prime)
+        
+        # Compute tail cumulative sums: A[r] = sum_{i>=r} alpha_prime[i]
+        # A[r] is the sum of alpha_prime from bin r to the last bin (inclusive)
+        K = len(alpha_prime)  # Number of bins
+        A = np.zeros(K)
+        for r in range(K):
+            A[r] = np.sum(alpha_prime[r:])
+        
+        # Compute L[r]: number of censored observations in each bin
+        # For bin r, we need to count censored times that fall in that bin's interval
+        # Bin r corresponds to interval [bins[r], bins[r+1]) for r < K-1
+        # and [bins[-1], +inf) for r = K-1 (overflow bin)
+        L = np.zeros(K)
+        for r in range(K - 1):
+            # Count censored times in [bins[r], bins[r+1])
+            L[r] = np.sum((censored1 >= bins[r]) & (censored1 < bins[r + 1]))
+        # Last bin (overflow): censored times >= T
+        L[K - 1] = np.sum(censored1 >= T)
+        
+        if debug:
+            print(f"Censored counts by bin (L): {L}")
+            print(f"alpha_prime = alpha + y: {alpha_prime}")
+            print(f"alpha0_prime = sum(alpha_prime): {alpha0_prime}")
+            print(f"Tail cumulative sums A: {A}")
+        
+        # Compute censored likelihood contribution
+        # Iterate from K down to 1 (in Python: from K-1 down to 0)
+        logL_censored = 0.0
+        T_after = 0  # Cumulative count of censored observations after current bin
+        
+        for r in range(K - 1, -1, -1):  # From K-1 down to 0
+            Lr = L[r]
+            if Lr == 0:
+                continue
+            
+            # Add censored contribution for bin r:
+            # log L += gammaln(A[r] + Lr) - gammaln(A[r])
+            #          - gammaln(alpha0_prime + T_after + Lr) + gammaln(alpha0_prime + T_after)
+            logL_censored += (gammaln(A[r] + Lr) - gammaln(A[r]) -
+                             gammaln(alpha0_prime + T_after + Lr) + 
+                             gammaln(alpha0_prime + T_after))
+            
+            T_after += Lr
+        
+        if debug:
+            print(f"Log-likelihood (censored): {logL_censored}")
+    else:
+        logL_censored = 0.0
+        if debug:
+            print("No censored observations")
+    
+    # ============================================================================
+    # Step 6: Total log-likelihood
+    # ============================================================================
+    total_logL = logL_uncensored + logL_censored
+    
+    if debug:
+        print(f"Total log-likelihood: {total_logL}")
+    
+    # Check for NaN
+    if np.isnan(total_logL):
+        if debug:
+            print("Warning: total log-likelihood is NaN")
+        return -np.inf
+    
+    return total_logL
+
+
 def distance(sr1, sr2, metric='dirichlet',time_range = None,**kwargs):
     """
     Calculate the distance between two SR models or SR model and equivalent data object according to different metrics.
@@ -884,6 +1123,11 @@ def distance(sr1, sr2, metric='dirichlet',time_range = None,**kwargs):
         #if n_bootstrapa is in kwargs use it, otherwise use 1
         dt = kwargs.get('dt',1)
         return baysianDistance(sr1, sr2, time_range=time_range, dt=dt)
+    if metric == 'original_dirichlet':
+        dt = kwargs.get('dt',1)
+        lambda_smooth = kwargs.get('lambda_smooth',0.5)
+        return original_dirichlet_distance(sr1, sr2, time_range=time_range, dt=dt, 
+                                          debug=kwargs.get('debug',False), lambda_smooth=lambda_smooth)
     if metric == 'legacy_dirichlet':
         dt = kwargs.get('dt',1)
         lambda_smooth = kwargs.get('lambda_smooth',0.5)
