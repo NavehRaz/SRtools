@@ -372,12 +372,8 @@ def baysian_dirichlet_distance(sr1, sr2, time_range=None, dt=1, debug=False, lam
     c_bins, _ = np.histogram(died2, bins=bins.astype(np.float32))  # Convert bins to float32
     
     # Count deaths in the tail (overflow bin): deaths >= T
-    # OPTIMIZATION 1: Avoid unnecessary array copies when time_range is provided
-    # Use already filtered data instead of creating full copies
-    if time_range is not None:
-        c_tail = np.sum((events2 == 1) & (death_times2 >= T))
-    else:
-        c_tail = np.sum(died2 >= T)
+    # FIXED: Use filtered data for tail count (consistent with current function)
+    c_tail = np.sum(died2 >= T)
     
     # The total number of bins is len(bins) (including the overflow bin)
     # We fold the tail count into the last bin
