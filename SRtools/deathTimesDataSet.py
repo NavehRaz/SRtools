@@ -74,15 +74,22 @@ class Dataset:
             Saves the dataset to a CSV file.
     """
     
-    def __init__(self, death_times,events, external_hazard = np.inf, bandwidth=3, properties = None, data_dt=1):
+    def __init__(self, death_times,events, external_hazard = np.inf, bandwidth=3, properties = None, data_dt=1, event_is_censored=False):
         """
         This function initializes the Dataset object.
         properties (dict, optional): Dictionary of properties for the dataset.
         data_dt (float, optional): The time step size for the data. Default is 1.
+        event_is_censored (bool, optional): If True, the events column is a censor column (1=censored, 0=event).
+                                            Events will be flipped when saving. Default is False.
         """
         self.death_times = death_times
         self.t_end = np.max(death_times)
-        self.events = events
+        # If event_is_censored is True, flip the events (1->0, 0->1)
+        if event_is_censored:
+            self.events = 1 - events
+        else:
+            self.events = events
+        self.event_is_censored = event_is_censored
         self.bandwidth = bandwidth
         self.n = len(death_times)
         self.kmf = None
@@ -93,7 +100,7 @@ class Dataset:
         self.external_hazard = external_hazard
         self.properties = properties
         self.data_dt = data_dt
-        self.calc_survival_and_hazard(events)
+        self.calc_survival_and_hazard(self.events)
     
     @property
     def npeople(self):
@@ -698,7 +705,7 @@ class Dataset:
             for prop in self.properties:
                 self.properties[prop] = self.properties[prop][idx]
         self.n = len(self.death_times)
-        self.calc_survival_and_hazard()
+        self.calc_survival_and_hazard(self.events)
         return
     
 
@@ -710,7 +717,12 @@ class Dataset:
             file_name (str): The name of the CSV file.
             properties (bool, optional): Whether to include properties in the CSV file. Default is False.
         """
-        data = {'death times': self.death_times, 'events': self.events}
+        # If event_is_censored is True, flip events back when saving (1->0, 0->1)
+        if self.event_is_censored:
+            events_to_save = 1 - self.events
+        else:
+            events_to_save = self.events
+        data = {'death times': self.death_times, 'events': events_to_save}
         if properties:
             data.update(self.properties)
         df = pd.DataFrame(data)
@@ -725,7 +737,7 @@ class DatasetCollection:
     This class contains a collection of datasets and allows for comparison of survival and hazard functions, 
     and check for batch effects.
     """
-    def __init__(self, file_names =None, datasets=None, properties = None, additional_properties = None,warnings = True, death_times_column = None, events_column = None,use_base_file_name = True):
+    def __init__(self, file_names =None, datasets=None, properties = None, additional_properties = None,warnings = True, death_times_column = None, events_column = None,use_base_file_name = True, event_is_censored=False):
         """
         This function initializes the DatasetCollection object. If file_names is provided, the datasets are loaded from the files.
         If both file_names and datasets are none, an empty dictionary is created.
@@ -736,6 +748,8 @@ class DatasetCollection:
             properties (list, optional): List of properties to separate the datasets by. If several files are provided, then the "file_name" property is
                                             added to the properties (separating datasets by files). The naming convention for the keys is f'property1:_{property1_value},property2:_{property2_value}...'.
             additional_properties (list, optional): List of additional properties to load from the files.
+            event_is_censored (bool, optional): If True, the events column is a censor column (1=censored, 0=event).
+                                                Events will be flipped when loading. Default is False.
         """
         
         #if both file_names and datasets are supplied, raise an error
@@ -762,10 +776,9 @@ class DatasetCollection:
                 file_names = [file_names]
             if len(file_names) > 1 and properties is not None:
                 properties.append('file_name')
-
         if file_names is not None:
             for file_name in file_names:
-                dataset = dsFromFile(file_name, properties=all_properties, death_times_column = death_times_column, events_column = events_column)
+                dataset = dsFromFile(file_name, properties=all_properties, death_times_column = death_times_column, events_column = events_column, event_is_censored=event_is_censored)
                 dataset.removeNans()
                 if use_base_file_name:
                     file_name = file_name.split('/')[-1]
@@ -919,6 +932,10 @@ class DatasetCollection:
             combined_dataset (Dataset): The combined dataset.
         """
         keys = self.getKeys(properties=properties, values=values, randomize=randomize)
+        if len(keys) == 0:
+            import warnings
+            warnings.warn("No datasets found matching the given criteria. Returning None.")
+            return None
         death_times = np.concatenate([self.datasets[key].death_times for key in keys])
         events = np.concatenate([self.datasets[key].events for key in keys])
         return Dataset(death_times, events, bandwidth=self.datasets[keys[0]].bandwidth)
@@ -1222,13 +1239,15 @@ class DatasetCollection:
         return ax
 
 
-def dsFromFile(path, external_hazard = np.inf, properties = None,sheet = None, death_times_column = None, events_column = None,bandwidth = 3):
+def dsFromFile(path, external_hazard = np.inf, properties = None,sheet = None, death_times_column = None, events_column = None,bandwidth = 3, event_is_censored=False):
     """
     This function loads the dataset from a file.
     Parameters:
         path (str): Path to the file.
         external_hazard (float, optional): External hazard rate. Default is np.inf.
         properties (list, optional): List of columns to be loaded from the file as properties.
+        event_is_censored (bool, optional): If True, the events column is a censor column (1=censored, 0=event).
+                                            Events will be flipped when loading. Default is False.
 
     """
     if sheet is not None and isinstance(path, pd.ExcelFile):
@@ -1258,13 +1277,14 @@ def dsFromFile(path, external_hazard = np.inf, properties = None,sheet = None, d
         events = df['event'].values
     elif 'censor' in df.columns:
         events = df['censor'].values
-        #flip 1 and 0 in censor
-        events = 1 - events
+        # If event_is_censored is False, flip 1 and 0 in censor (old behavior)
+        if not event_is_censored:
+            events = 1 - events
     else:
         raise ValueError('Events or Censor column not found in the file.')
     if properties is not None:
         properties = {property: df[property].values for property in properties if property in df.columns}
-    return Dataset(death_times, events, external_hazard = external_hazard, properties = properties, bandwidth=bandwidth)
+    return Dataset(death_times, events, external_hazard = external_hazard, properties = properties, bandwidth=bandwidth, event_is_censored=event_is_censored)
 
 
 
@@ -1278,7 +1298,7 @@ def trim_to_range(t,vals,time_range,renormalize_survival = False):
 
 
 
-def dataCollectionFromExcel(excel_file_name,properties=None,additional_properties=None, warnings =True):
+def dataCollectionFromExcel(excel_file_name,properties=None,additional_properties=None, warnings =True, event_is_censored=False):
     """
     This function loads the dataset collection from an excel file. It assumes that all the sheets in the excel file are datasets (each sheet is a dataset).
     The sheet name is added as a property to the dataset.
@@ -1286,6 +1306,8 @@ def dataCollectionFromExcel(excel_file_name,properties=None,additional_propertie
         excel_file_name (str): Path to the excel file.
         properties (list, optional): List of properties to separate the datasets by. Default is None.
         additional_properties (list, optional): List of additional properties to load from the files. Default is None.
+        event_is_censored (bool, optional): If True, the events column is a censor column (1=censored, 0=event).
+                                            Events will be flipped when loading. Default is False.
     """
     xls = pd.ExcelFile(excel_file_name)
     datasets = []
@@ -1303,7 +1325,7 @@ def dataCollectionFromExcel(excel_file_name,properties=None,additional_propertie
     properties.append('sheet')
 
     for sheet in xls.sheet_names:
-        dataset = dsFromFile(xls, sheet=sheet, properties=all_properties)
+        dataset = dsFromFile(xls, sheet=sheet, properties=all_properties, event_is_censored=event_is_censored)
         dataset.addProperty('sheet', sheet)
         datasets.append(dataset)
 
