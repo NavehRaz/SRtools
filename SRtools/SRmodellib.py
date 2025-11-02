@@ -200,20 +200,15 @@ class SR(dtds.Dataset):
         self.events = events
         return death_times, events
 
-    def calc_survival_and_hazard(self,death_times_method = 0):
-        if death_times_method == 0:
-            death_times, events = self.calc_death_times()
-        else:
-
-            death_times, events = self.calc_death_times()
-        
-        # Calculate survival and hazard using death times
-        from .life_table import Life_table
-        lt = Life_table(death_times, events)
-        self.survival = lt.getSurvival()
-        self.hazard = lt.getHazard()
-        self.cum_hazard = lt.getCumHazard()
-        return self.survival
+    def calc_survival_and_hazard(self, death_times_method=0):
+        """
+        DEPRECATED: This method is deprecated and no longer maintained.
+        Please use the SR_lf (lifelines) object instead for survival and hazard calculations.
+        """
+        raise NotImplementedError(
+            "calc_survival_and_hazard is deprecated. "
+            "Please use the SR_lf object instead, which provides robust support for survival analysis using lifelines."
+        )
 
 
     def getHazard(self):
