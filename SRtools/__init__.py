@@ -34,7 +34,6 @@ from .makhamGompertzFitter import (
 # Bayesian analysis classes
 from .prior_gen import PriorGen, PriorGenExtended
 from .samples_utils import Posterior, JointPosterior
-from .probability import Prob2d
 
 # Parameter search
 from .initialParamsFinder import Guess
@@ -70,7 +69,6 @@ __all__ = [
     'PriorGenExtended',
     'Posterior',
     'JointPosterior',
-    'Prob2d',
     # Parameter search
     'Guess',
 ]
