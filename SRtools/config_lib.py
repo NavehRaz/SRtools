@@ -329,12 +329,18 @@ def config_to_dict(config, mcmc_convert=True, custom_keys=None):
         for key, value_type in predefined_keys.items():
             if key in config_dict.keys():
                 converter = get_converter(value_type)
-                if converter:
-                    try:
-                        conv = converter(config_dict[key])
-                    except (ValueError, SyntaxError):
-                        conv = converter(config_dict[key]) # Handle conversion errors gracefully
-                    config_dict[key] = conv
+                if not converter:
+                    continue
+                raw_val = config_dict[key]
+                # Treat empty strings as None and skip conversion
+                if isinstance(raw_val, str) and raw_val.strip() == '':
+                    config_dict[key] = None
+                    continue
+                try:
+                    config_dict[key] = converter(raw_val)
+                except (ValueError, SyntaxError, TypeError):
+                    # Leave original value if conversion fails
+                    config_dict[key] = raw_val
 
     return config_dict
 
