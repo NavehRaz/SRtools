@@ -15,7 +15,7 @@ from joblib import Parallel, delayed
 from scipy.stats import gaussian_kde
 from scipy.integrate import quad
 from . import deathTimesDataSet as dtds
-from .distance_metrics import ks_test, trim_to_range, baysianDistance, baysianDistance2, baysian_dirichlet_distance, distance
+from .distance_metrics import ks_test, trim_to_range, baysianDistance, baysian_dirichlet_distance, distance
 
 jit_nopython = True
 jit_parallel = True
