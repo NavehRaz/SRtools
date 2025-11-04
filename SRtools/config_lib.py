@@ -72,9 +72,9 @@ class ExcelConfigParser:
                     key = str(keys_col.iloc[idx]).strip()
                     if key and key != 'nan':
                         value = str(values_col.iloc[idx])
-                        # Handle NaN values
-                        if pd.isna(values_col.iloc[idx]) or value == 'nan':
-                            value = ''
+                        # Skip blank cells - don't add to dictionary so get(key, default) returns default
+                        if pd.isna(values_col.iloc[idx]) or value == 'nan' or value.strip() == '':
+                            continue  # Skip blank cells - don't add to dictionary
                         section_data[key] = value
                 
                 self._data[section_name] = section_data
