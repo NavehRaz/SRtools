@@ -53,13 +53,10 @@ class ExcelConfigParser:
                 # Check if config_name column exists (excluding the first column which is keys)
                 config_cols = [c for c in df.columns if c != df.columns[0]]
                 if self.config_name not in df.columns:
-                    if config_cols:
-                        raise ValueError(f"Config '{self.config_name}' not found in sheet '{sheet_name}'. "
-                                       f"Available configs: {config_cols}")
-                    else:
-                        # Empty sheet or only keys column
-                        self._data[section_name] = {}
-                        continue
+                    # Config column not found in this sheet - create empty section instead of error
+                    # This allows sheets like SUBMISSION_* to exist without all config columns
+                    self._data[section_name] = {}
+                    continue
                 
                 # Get keys from first column (column A)
                 keys_col = df.iloc[:, 0].astype(str)
