@@ -58,6 +58,7 @@ class SR(dtds.Dataset):
                 raise ValueError('number of time steps should be greater then the number of time units of the simulation') 
             self.natural_units = natural_units
             self.smoothing =smoothing
+            self.event_is_censored = False
             self.tscale = tscale
             self.eta = eta
             self.beta = beta

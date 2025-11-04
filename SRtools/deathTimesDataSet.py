@@ -718,10 +718,8 @@ class Dataset:
             properties (bool, optional): Whether to include properties in the CSV file. Default is False.
         """
         # If event_is_censored is True, flip events back when saving (1->0, 0->1)
-        if self.event_is_censored:
-            events_to_save = 1 - self.events
-        else:
-            events_to_save = self.events
+
+        events_to_save = self.events
         data = {'death times': self.death_times, 'events': events_to_save}
         if properties:
             data.update(self.properties)
