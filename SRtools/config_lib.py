@@ -281,6 +281,8 @@ def config_to_dict(config, mcmc_convert=True, custom_keys=None):
     Convert the config file to a dictionary.
     """
     config_dict = {}
+    # If several sections have the same key, 
+    # keep the one from the last section as we iterate in order.
     for section in config.sections():
         for key, value in config.items(section):
             config_dict[key] = value

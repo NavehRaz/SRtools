@@ -155,7 +155,7 @@ class JointPosterior(su.Posterior):
     def lnprobs(self):
         raise AttributeError("JointPosterior object has no attribute 'lnprobs'")
     
-    def create_posterior_df(self,transforms = ['default'],labels = None, ds=None,ds_labels=None, kappa=0.5, filepath = None, smooth_mode = True, rescale=None):
+    def create_posterior_df(self,transforms = ['default'],labels = None, ds=None,ds_labels=None, kappa=0.5, filepath = None, smooth_mode = True, rescale=None, truth=None):
         """
         Creates a summerey pandas dataframe of the maximum posterior statistics for the samples.
         For each transfor in the transforms list, the statistics are calculated and added to the dataframe.
@@ -224,14 +224,28 @@ class JointPosterior(su.Posterior):
 
         if rescale is not None:
             self.rescale(rescale)
-            
         
+        # Rescale truth if provided
+        if truth is not None:
+            truth = np.array(truth)
+            if rescale is not None:
+                truth_rescaled = truth * np.array(rescale)
+            else:
+                truth_rescaled = truth.copy()
+        else:
+            truth_rescaled = None
+            
         percentiles = [16, 50, 95]
         stats=['mean', 'std', 'mode', 'percentiles']
         summery_dict = {}
         for transform, label_set in zip(transforms, labels):
             trans = lambda x: transform(x,kappa)
             transformed_samples_list = [np.apply_along_axis(trans, 1, samples) for samples in self.samples_list]
+            # Transform truth value
+            if truth_rescaled is not None:
+                truth_transformed = trans(truth_rescaled)
+            else:
+                truth_transformed = None
             post = JointPosterior(transformed_samples_list.copy(), self.lnprobs_list.copy(), self.raw_bins, log=self.log, progress_bar=self.progress_bar)
             max_liklihood = [transformed_samples_list[i][np.argmax(self.lnprobs_list[i])] for i in range(len(transformed_samples_list))]
             max_likelihood_overall_index = np.argmax([max(self.lnprobs_list[i]) for i in range(len(self.lnprobs_list))])
@@ -251,7 +265,7 @@ class JointPosterior(su.Posterior):
                 stats_dict = su.getStats(marginalized_samples, marginalized_lnprobs, marginalized_dthetas, stats=stats, percentiles=percentiles, smooth_mode=smooth_mode)
                 #if log[i] then exponentiate the mean, mode and percentiles. std is [exp(mean+std)-exp(mean),exp(mean)-exp(mean-std)]
                 if self.log[i]:
-                    stats_dict['std'] = [np.exp(stats_dict['mean']+stats_dict['std'])-np.exp(stats_dict['mean']),np.exp(stats_dict['mean'])-np.exp(stats_dict['mean']-stats_dict['std'])]
+                    stats_dict['std'] = [np.exp(stats_dict['mean'])-np.exp(stats_dict['mean']-stats_dict['std']),np.exp(stats_dict['mean']+stats_dict['std'])-np.exp(stats_dict['mean'])]
                     stats_dict['mean'] = np.exp(stats_dict['mean'])
                     stats_dict['mode'] = np.exp(stats_dict['mode'])
                     for percentile in percentiles:
@@ -267,6 +281,82 @@ class JointPosterior(su.Posterior):
                         stats_dict[key] = stats_dict[key].tolist()
                 stats_dict['max_likelihood'] = float(round_value(max_liklihood[i],3))
                 stats_dict['mode_overall'] = float(round_value(mode_overall[i],3))
+                
+                # Add truth comparison if truth is provided
+                if truth_transformed is not None:
+                    # Get truth value for this parameter, handling log scaling
+                    truth_val = truth_transformed[i]
+                    if self.log[i]:
+                        truth_val = np.exp(truth_val)
+                    
+                    # Get max_likelihood and mode_overall values, handling log scaling
+                    max_likelihood_val = max_liklihood[i]
+                    mode_overall_val = mode_overall[i]
+                    if self.log[i]:
+                        max_likelihood_val = np.exp(max_likelihood_val)
+                        mode_overall_val = np.exp(mode_overall_val)
+                    
+                    # Handle division by zero for percentage calculations
+                    truth_abs = abs(truth_val)
+                    if truth_abs < 1e-10:
+                        # Use np.inf for division by zero cases
+                        error_mode = np.inf
+                        error_max_likelihood = np.inf
+                        error_mean = np.inf
+                        error_mode_overall = np.inf
+                        ci95_size_pct = np.inf
+                    else:
+                        # Compute error columns as percentage of truth value
+                        error_mode = (abs(truth_val - stats_dict['mode']) / truth_abs) * 100
+                        error_max_likelihood = (abs(truth_val - max_likelihood_val) / truth_abs) * 100
+                        error_mean = (abs(truth_val - stats_dict['mean']) / truth_abs) * 100
+                        error_mode_overall = (abs(truth_val - mode_overall_val) / truth_abs) * 100
+                        
+                        # Compute 95% CI size as percentage of truth
+                        if 'percentile_95' in stats_dict:
+                            ci95_low, ci95_high = stats_dict['percentile_95']
+                            ci95_size_pct = ((ci95_high - ci95_low) / truth_abs) * 100
+                        else:
+                            ci95_size_pct = np.nan
+                    
+                    # Round error values
+                    error_mode = float(round_value(error_mode, 3)) if not np.isinf(error_mode) else error_mode
+                    error_max_likelihood = float(round_value(error_max_likelihood, 3)) if not np.isinf(error_max_likelihood) else error_max_likelihood
+                    error_mean = float(round_value(error_mean, 3)) if not np.isinf(error_mean) else error_mean
+                    error_mode_overall = float(round_value(error_mode_overall, 3)) if not np.isinf(error_mode_overall) else error_mode_overall
+                    ci95_size_pct = float(round_value(ci95_size_pct, 3)) if not (np.isinf(ci95_size_pct) or np.isnan(ci95_size_pct)) else ci95_size_pct
+                    
+                    # Add error columns to stats_dict
+                    stats_dict['error_mode'] = error_mode
+                    stats_dict['error_max_likelihood'] = error_max_likelihood
+                    stats_dict['error_mean'] = error_mean
+                    stats_dict['error_mode_overall'] = error_mode_overall
+                    stats_dict['ci95_size_pct'] = ci95_size_pct
+                    
+                    # Compute CI coverage columns (boolean)
+                    for percentile in percentiles:
+                        percentile_key = f'percentile_{percentile}'
+                        if percentile_key in stats_dict:
+                            percentile_low, percentile_high = stats_dict[percentile_key]
+                            in_ci = (truth_val >= percentile_low) and (truth_val <= percentile_high)
+                            stats_dict[f'in_percentile_{percentile}_CI'] = bool(in_ci)
+                    
+                    # Compute std CI coverage
+                    if 'std' in stats_dict:
+                        std_val = stats_dict['std']
+                        mean_val = stats_dict['mean']
+                        if isinstance(std_val, list):
+                            # std is [lower, upper] format
+                            std_lower, std_upper = std_val
+                            std_ci_low = mean_val - std_lower
+                            std_ci_high = mean_val + std_upper
+                        else:
+                            # std is scalar
+                            std_ci_low = mean_val - std_val
+                            std_ci_high = mean_val + std_val
+                        in_std_ci = (truth_val >= std_ci_low) and (truth_val <= std_ci_high)
+                        stats_dict['in_std_CI'] = bool(in_std_ci)
+                
                 summery_dict[label_set[i]]=stats_dict
 
         if ds is not None:
