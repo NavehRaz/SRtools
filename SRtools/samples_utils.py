@@ -684,15 +684,10 @@ class Posterior:
                 if truth_transformed is not None:
                     # Get truth value for this parameter, handling log scaling
                     truth_val = truth_transformed[i]
-                    if self.log[i]:
-                        truth_val = np.exp(truth_val)
                     
                     # Get max_likelihood and mode_overall values, handling log scaling
                     max_likelihood_val = max_liklihood[i]
                     mode_overall_val = mode_overall[i]
-                    if self.log[i]:
-                        max_likelihood_val = np.exp(max_likelihood_val)
-                        mode_overall_val = np.exp(mode_overall_val)
                     
                     # Handle division by zero for percentage calculations
                     truth_abs = abs(truth_val)
