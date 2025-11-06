@@ -544,7 +544,7 @@ class Posterior:
             return ax
 
 
-    def create_posterior_df(self,transforms = ['default'],labels = None, ds=None,ds_labels=None, kappa=0.5, filepath = None, smooth_mode = True, rescale=None, set_xc=False, truth=None):
+    def create_posterior_df(self,transforms = ['default'],labels = None, ds=None,ds_labels=None, kappa=0.5, filepath = None, smooth_mode = False, rescale=None, set_xc=False, truth=None):
         """
         Creates a summerey pandas dataframe of the maximum posterior statistics for the samples.
         For each transfor in the transforms list, the statistics are calculated and added to the dataframe.
