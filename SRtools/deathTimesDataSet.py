@@ -1237,7 +1237,7 @@ class DatasetCollection:
         return ax
 
 
-def dsFromFile(path, external_hazard = np.inf, properties = None,sheet = None, death_times_column = None, events_column = None,bandwidth = 3, event_is_censored=False):
+def dsFromFile(path, external_hazard = np.inf, properties = None,sheet = None, death_times_column = None, events_column = None,bandwidth = 3, event_is_censored=False,excel_has_header=False):
     """
     This function loads the dataset from a file.
     Parameters:
@@ -1257,7 +1257,7 @@ def dsFromFile(path, external_hazard = np.inf, properties = None,sheet = None, d
     elif format == 'xlsx':
         if sheet is None and len(pd.ExcelFile(path).sheet_names) > 1:
             raise ValueError('Multiple sheets found in the excel file. Please specify the sheet name.')
-        df = pd.read_excel(path, sheet_name=sheet)
+        df = pd.read_excel(path, sheet_name=sheet, header=excel_has_header)
     if death_times_column is not None:
         death_times = df[death_times_column].values
     elif 'death times' in df.columns:
