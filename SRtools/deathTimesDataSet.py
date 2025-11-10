@@ -1237,7 +1237,7 @@ class DatasetCollection:
         return ax
 
 
-def dsFromFile(path, external_hazard = np.inf, properties = None,sheet = None, death_times_column = None, events_column = None,bandwidth = 3, event_is_censored=False,excel_has_header=False):
+def dsFromFile(path, external_hazard = np.inf, properties = None,sheet = None, death_times_column = None, events_column = None,bandwidth = 3, event_is_censored=False,excel_has_header=None):
     """
     This function loads the dataset from a file.
     Parameters:
