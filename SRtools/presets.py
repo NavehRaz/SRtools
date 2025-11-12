@@ -55,6 +55,14 @@ PRESET_ALIASES = {
     'Humans_F': 'humans_F_combined',
     'humans female': 'humans_F_combined',
     'Humans Female': 'humans_F_combined',
+
+    # Denmark male hetro aliases
+    'Denmark_M_1900_hetro': 'Denmark_M_1900',
+    'Denmark_M_1890_hetro': 'Denmark_M_1890',
+
+    # Denmark female hetro aliases
+    'Denmark_F_1900_hetro': 'Denmark_F_1900',
+    'Denmark_F_1890_hetro': 'Denmark_F_1890',
     
     # Labrador aliases
     'Labradors': 'Labradors_vetCompass',
@@ -91,6 +99,7 @@ PRESET_ALIASES = {
     'C. elegans': 'celegance',
     'c. elegans': 'celegance',
     'Celegance': 'celegance',
+    'celegans': 'celegance',
     
     #E. coli aliases
     'E. coli': 'ecoli',
@@ -369,6 +378,7 @@ def getSim(
     else:
         config_time_unit = time_unit
     config = get_config_params(preset_name=preset_name, time_unit=config_time_unit, config_params=config_params)
+    
     if config['hetro'] is None:
         config['hetro'] = False
     # Remove 'time_range' from config if present

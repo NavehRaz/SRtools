@@ -1,3 +1,4 @@
+from typing import Any
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
@@ -109,6 +110,33 @@ class Dataset:
     @npeople.setter
     def npeople(self, value):
         self.n = value
+
+
+    def coarse_grain(self, dt=1):
+        """
+        Round all death times up to the nearest multiple of ``dt`` and recompute survival statistics.
+
+        Parameters:
+            dt (float): Desired temporal resolution. Must be positive.
+
+        Returns:
+            Dataset: The dataset instance (for chaining).
+        """
+        if dt is None:
+            return self
+        if dt <= 0:
+            raise ValueError("dt must be positive.")
+        
+
+        death_times = np.asarray(self.death_times, dtype=float)
+        eps = np.finfo(float).eps
+        coarse_times = np.ceil(death_times / dt - eps) * dt
+
+        self.death_times = coarse_times
+        self.t_end = float(np.max(coarse_times)) if coarse_times.size else 0.0
+        self.data_dt = dt
+        self.calc_survival_and_hazard(self.events)
+        return self
 
 
     def calc_survival_and_hazard(self, events = None):
@@ -1237,7 +1265,7 @@ class DatasetCollection:
         return ax
 
 
-def dsFromFile(path, external_hazard = np.inf, properties = None,sheet = None, death_times_column = None, events_column = None,bandwidth = 3, event_is_censored=False,excel_has_header=None):
+def dsFromFile(path, external_hazard = np.inf, properties = None,sheet = None, death_times_column = None, events_column = None,bandwidth = 3, event_is_censored=False,excel_has_header=None,remove_nan_rows = False):
     """
     This function loads the dataset from a file.
     Parameters:
@@ -1257,7 +1285,11 @@ def dsFromFile(path, external_hazard = np.inf, properties = None,sheet = None, d
     elif format == 'xlsx':
         if sheet is None and len(pd.ExcelFile(path).sheet_names) > 1:
             raise ValueError('Multiple sheets found in the excel file. Please specify the sheet name.')
-        df = pd.read_excel(path, sheet_name=sheet, header=excel_has_header)
+        df = pd.read_excel(path, sheet_name=sheet, header=excel_has_header)   
+
+    if remove_nan_rows:
+        df = df.dropna() 
+
     if death_times_column is not None:
         death_times = df[death_times_column].values
     elif 'death times' in df.columns:
@@ -1282,9 +1314,9 @@ def dsFromFile(path, external_hazard = np.inf, properties = None,sheet = None, d
         raise ValueError('Events or Censor column not found in the file.')
     if properties is not None:
         properties = {property: df[property].values for property in properties if property in df.columns}
+
     return Dataset(death_times, events, external_hazard = external_hazard, properties = properties, bandwidth=bandwidth, event_is_censored=event_is_censored)
-
-
+    
 
 def trim_to_range(t,vals,time_range,renormalize_survival = False):
     #trims the values to the time range
