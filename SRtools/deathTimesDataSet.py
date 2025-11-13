@@ -478,26 +478,163 @@ class Dataset:
         ax.spines['top'].set_visible(False)
         return ax
     
-    def plotScaledHazard(self, ax=None,scale =None,clean_plot=True,clean_at = 1e-6,**kwargs):
+    def plotScaledHazard(self, ax=None,scale =None,clean_plot=True,clean_at = 1e-6, CI=True, trim_by_n=10, **kwargs):
         """
         Plots the scaled hazard function.
         
         Parameters:
             ax (matplotlib.axes.Axes, optional): The axes to plot on. Default is None.
+            scale (float, optional): Scale factor for x-axis. Default is median survival time.
+            clean_plot (bool, optional): Whether to clip values below clean_at. Default is True.
+            clean_at (float, optional): Minimum value threshold. Default is 1e-6.
+            CI (bool, optional): Whether to plot confidence intervals. Default is True.
+            trim_by_n (int, optional): Trim plot to start after trim_by_n'th death and stop when 
+                                      trim_by_n people are still alive. Default is 0 (no trimming).
             **kwargs: Additional keyword arguments for the plot.
         """
         if ax is None:
             fig, ax = plt.subplots()
-        t,h = self.hazard
         if scale is None:
             scale = self.kmf.median_survival_time_
-        if clean_plot:
-            t= t[h>clean_at]
-            h = h[h>clean_at]
-        ax.plot(t/scale, h, **kwargs)
+        
+        # Calculate trim time bounds if trim_by_n > 0
+        t_min = None
+        t_max = None
+        if trim_by_n > 0:
+            # Get death times (only actual deaths, not censored)
+            death_times = self.death_times[self.events == 1]
+            death_times_sorted = np.sort(death_times)
+            n_deaths = len(death_times_sorted)
+            
+            if trim_by_n < n_deaths and (n_deaths - trim_by_n) > trim_by_n:
+                # Start after trim_by_n'th death (inclusive of next point)
+                # Use the time of the (trim_by_n + 1)'th death as minimum
+                t_min = death_times_sorted[trim_by_n] if trim_by_n < n_deaths else None
+                
+                # Stop when trim_by_n people are still alive
+                # This means stop at the time of the (n_deaths - trim_by_n)'th death
+                # (exclusive, so we use < t_max)
+                t_max = death_times_sorted[n_deaths - trim_by_n - 1] if (n_deaths - trim_by_n) > 0 else None
+            else:
+                # trim_by_n is too large or would result in invalid range, no trimming
+                t_min = None
+                t_max = None
+        
+        # Use lifelines' plot_hazard to get correctly smoothed hazard with CI
+        # Create isolated temporary figure for this call (allows multiple hazards on same axes)
+        temp_fig = plt.figure(figsize=(1, 1))  # Small figure, won't be displayed
+        temp_ax = temp_fig.add_subplot(111)
+        
+        # Plot with CI if requested - let lifelines handle all smoothing
+        plot_kwargs = kwargs.copy()
+        # Remove any CI-related parameters that might conflict
+        plot_kwargs.pop('CI', None)
+        plot_kwargs.pop('ci_show_lines', None)
+        
+        if CI:
+            self.naf.plot_hazard(ax=temp_ax, bandwidth=self.bandwidth, **plot_kwargs)
+        else:
+            # If no CI, use ci_show=False to disable confidence intervals
+            self.naf.plot_hazard(ax=temp_ax, bandwidth=self.bandwidth, ci_show=False, **plot_kwargs)
+        
+        # Extract data from the temporary plot before closing
+        lines = temp_ax.get_lines()
+        collections = temp_ax.collections
+        
+        # Get hazard line data
+        hazard_data = None
+        if len(lines) > 0:
+            hazard_line = lines[0]
+            t_orig = np.asarray(hazard_line.get_xdata(), dtype=float)
+            h_orig = np.asarray(hazard_line.get_ydata(), dtype=float)
+            hazard_data = {
+                't': t_orig,
+                'h': h_orig,
+                'color': hazard_line.get_color(),
+                'linestyle': hazard_line.get_linestyle(),
+                'linewidth': hazard_line.get_linewidth(),
+                'label': hazard_line.get_label() if hazard_line.get_label() else None
+            }
+        
+        # Get CI fill data if present
+        ci_data = None
+        if CI and len(collections) > 0:
+            for collection in collections:
+                if hasattr(collection, 'get_paths'):
+                    paths = collection.get_paths()
+                    if len(paths) > 0:
+                        # Get the path vertices - CI is typically a single polygon
+                        vertices = paths[0].vertices
+                        if len(vertices) > 0:
+                            t_ci = vertices[:, 0]
+                            h_ci = vertices[:, 1]
+                            ci_data = {
+                                't': t_ci,
+                                'h': h_ci,
+                                'alpha': collection.get_alpha() if hasattr(collection, 'get_alpha') else 0.3,
+                                'color': collection.get_facecolor()[0] if hasattr(collection, 'get_facecolor') and len(collection.get_facecolor()) > 0 else kwargs.get('color')
+                            }
+                            break  # Use first collection found
+        
+        # Close temporary figure immediately after extracting data
+        plt.close(temp_fig)
+        
+        # Now plot to the actual axes with scaling applied
+        if hazard_data is not None:
+            t_orig = hazard_data['t']
+            h_orig = hazard_data['h']
+            
+            # Apply trim_by_n filtering if requested
+            if trim_by_n > 0 and t_min is not None and t_max is not None:
+                mask = (t_orig >= t_min) & (t_orig <= t_max)
+                t_orig = t_orig[mask]
+                h_orig = h_orig[mask]
+            
+            # Rescale time
+            t_scaled = t_orig / scale
+            
+            # Apply clean_at clipping if requested
+            if clean_plot:
+                mask = h_orig > clean_at
+                t_scaled = t_scaled[mask]
+                h_orig = np.maximum(h_orig[mask], clean_at)
+            
+            # Plot scaled hazard
+            ax.plot(t_scaled, h_orig, color=hazard_data['color'], 
+                   linestyle=hazard_data['linestyle'], 
+                   linewidth=hazard_data['linewidth'],
+                   label=hazard_data['label'], **{k: v for k, v in kwargs.items() if k not in ['color', 'linestyle', 'linewidth', 'label']})
+        
+        # Plot CI if available
+        if ci_data is not None:
+            t_ci = ci_data['t']
+            h_ci = ci_data['h']
+            
+            # Apply trim_by_n filtering if requested
+            if trim_by_n > 0 and t_min is not None and t_max is not None:
+                mask = (t_ci >= t_min) & (t_ci <= t_max)
+                t_ci = t_ci[mask]
+                h_ci = h_ci[mask]
+            
+            # Rescale time
+            t_ci_scaled = t_ci / scale
+            
+            # Apply clean_at clipping
+            if clean_plot:
+                mask = h_ci > clean_at
+                t_ci_scaled = t_ci_scaled[mask]
+                h_ci = np.maximum(h_ci[mask], clean_at)
+            
+            # Fill the polygon (CI bounds)
+            ax.fill(t_ci_scaled, h_ci, 
+                   alpha=ci_data['alpha'],
+                   color=ci_data['color'],
+                   edgecolor='none')
+        
         ax.set_yscale('log')
         ax.spines['right'].set_visible(False)
         ax.spines['top'].set_visible(False)
+        
         return ax
     
     def getHazard(self):

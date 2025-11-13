@@ -877,10 +877,6 @@ def distance(sr1, sr2, metric='baysian',time_range = None,**kwargs):
         #if n_bootstrapa is in kwargs use it, otherwise use 1
         dt = kwargs.get('dt',1)
         return baysianDistance(sr1, sr2, time_range=time_range, dt=dt)
-    if metric == 'baysian2':
-        #if n_bootstrapa is in kwargs use it, otherwise use 1
-        dt = kwargs.get('dt',1)
-        return baysianDistance2(sr1, sr2, time_range=time_range, dt=dt,debug=kwargs.get('debug',False))
     if metric == 'dirichlet':
         dt = kwargs.get('dt',1)
         lambda_smooth = kwargs.get('lambda_smooth',0.5)
