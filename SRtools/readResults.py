@@ -202,7 +202,7 @@ def plotSingleParam(results,param,divide_by_param =None,multiply_param =None, fi
         plt.show()
     
 
-def plotParams2D(results,param1,param2,divide_by_param1 =None,multiply_param1=None, divide_by_param2=None,multiply_param2=None, file_keys='all', type ='Mean', xscale='linear',yscale='linear', save_path=None, figsize=(15,10)):
+def plotParams2D(results,param1,param2,divide_by_param1 =None,multiply_param1=None, divide_by_param2=None,multiply_param2=None, file_keys='all', type ='Mean', xscale='linear',yscale='linear', save_path=None, figsize=(15,10), ax=None):
     """
     Plots the values of two parameters for different files, with param2 as a function of param1.
     In each df, the parameters are the relevant columns.
@@ -217,6 +217,16 @@ def plotParams2D(results,param1,param2,divide_by_param1 =None,multiply_param1=No
     Grid is added.
     If divide_by_param1 or divide_by_param2 is not None, the parameters are divided by the respective divide_by_param.
     If multiply_param1 or multiply_param2 is not None, the parameters are multiplied by the respective multiply_param.
+    
+    Parameters
+    ----------
+    ax : matplotlib.axes.Axes, optional
+        Axes object to plot on. If None, a new figure and axes will be created.
+    
+    Returns
+    -------
+    matplotlib.axes.Axes
+        The axes object used for plotting.
     """
 
     if file_keys == 'all':
@@ -240,7 +250,10 @@ def plotParams2D(results,param1,param2,divide_by_param1 =None,multiply_param1=No
     else:
         param2_title = getPrintDict().get(param2, param2)
 
-    plt.figure(figsize=figsize)
+    if ax is None:
+        fig, ax = plt.subplots(figsize=figsize)
+    else:
+        fig = ax.get_figure()
     for file_key in file_keys:
         df = results[file_key]
         if type == 'Mean':
@@ -299,7 +312,7 @@ def plotParams2D(results,param1,param2,divide_by_param1 =None,multiply_param1=No
         elif xscale == 'log' and x-xerr < 1e-2*x:
             xerr = [[x-1e-2*x],[xerr]]
 
-        plt.errorbar(x, y, xerr=xerr, yerr=yerr, label=file_key, 
+        ax.errorbar(x, y, xerr=xerr, yerr=yerr, label=file_key, 
                      color=plot_props[file_key]['color'], 
                      marker=plot_props[file_key]['marker'], 
                      linestyle='None')
@@ -315,25 +328,27 @@ def plotParams2D(results,param1,param2,divide_by_param1 =None,multiply_param1=No
             y_best_fit /= df[divide_by_param2]['Best fit']
         if multiply_param2 is not None:
             y_best_fit *= df[multiply_param2]['Best fit']
-        plt.plot(x_best_fit, y_best_fit, label=f"{file_key} Best fit", 
+        ax.plot(x_best_fit, y_best_fit, label=f"{file_key} Best fit", 
                  color=plot_props[file_key]['color'], 
                  marker=plot_props[file_key]['marker'], 
                  linestyle='-', alpha=0.3)
 
-    plt.xscale(xscale)
-    plt.yscale(yscale)
-    plt.title(f"{param1_title} vs {param2_title} {type}")
-    plt.xlabel(param1_title)
-    plt.ylabel(param2_title)
-    plt.grid(True)
-    plt.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
-    plt.gca().spines['top'].set_visible(False)
-    plt.gca().spines['right'].set_visible(False)
+    ax.set_xscale(xscale)
+    ax.set_yscale(yscale)
+    ax.set_title(f"{param1_title} vs {param2_title} {type}")
+    ax.set_xlabel(param1_title)
+    ax.set_ylabel(param2_title)
+    ax.grid(True)
+    ax.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
+    ax.spines['top'].set_visible(False)
+    ax.spines['right'].set_visible(False)
 
     if save_path:
         plt.savefig(save_path, bbox_inches='tight')
-    else:
+    elif ax is None:
         plt.show()
+    
+    return ax
 
 
 
