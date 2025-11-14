@@ -646,7 +646,7 @@ class Posterior:
             else:
                 truth_transformed = None
             post = Posterior(transformed_samples.copy(), resecaled_posterior.lnprobs.copy(), bins=bins, log=resecaled_posterior.log, progress_bar=resecaled_posterior.progress_bar, config_params=resecaled_posterior.config_params, help_text=resecaled_posterior.help_text, prior=resecaled_posterior.prior_object)
-            max_liklihood = transformed_samples[np.argmax(self.lnprobs)]
+            max_liklihood = transformed_samples[np.argmax(resecaled_posterior.lnprobs)]
             mode_overall = post.get_best_sample_in_mode()
             for i in range(n_features):
                 #check if the label is already calculated
