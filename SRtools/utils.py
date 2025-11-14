@@ -261,5 +261,72 @@ def read_summary_csv(file=None, columns='all', format='mode'):
         values_by_param[param_name] = values
         if ci_columns:
             ci_by_param[param_name] = cis
-
+            
     return values_by_param, ci_by_param, selected_value_columns
+
+def get_summery_csv_df(file=None, columns='all', format='mode'):
+    """
+    Load preset summary CSVs and optionally subset columns, returning a pandas DataFrame.
+    
+    Similar to read_summary_csv but returns a DataFrame instead of dictionaries.
+
+    Parameters
+    ----------
+    file : str, optional
+        Explicit path to a summary CSV. If None, resolved from `format`.
+    columns : 'all' or array-like, optional
+        Which value columns to read (excluding the parameter column). Defaults to all.
+    format : {'mode', 'mode_overall', 'max_likelihood'}, optional
+        Determines the default CSV file and whether confidence intervals exist.
+
+    Returns
+    -------
+    pandas.DataFrame
+        DataFrame with parameters as index and selected columns (including CI columns if present).
+    """
+    allowed_formats = {
+        'mode': 'summery_mode.csv',
+        'mode_overall': 'summery_mode_overall.csv',
+        'max_likelihood': 'summery_max_likelihood.csv',
+    }
+
+    if file is None:
+        if format not in allowed_formats:
+            raise ValueError(f"Unknown format '{format}'. Expected one of {list(allowed_formats.keys())}")
+        file = os.path.join(os.path.dirname(__file__), 'Preset_values', allowed_formats[format])
+
+    df = pd.read_csv(file, index_col=0)
+
+    if isinstance(columns, str) and columns != 'all':
+        selected_columns = [columns]
+    elif columns == 'all':
+        selected_columns = 'all'
+    else:
+        selected_columns = list(columns)
+
+    if format == 'mode':
+        value_columns = [col for col in df.columns if '95% CI' not in col]
+        ci_columns = {col.replace(' 95% CI', ''): col for col in df.columns if '95% CI' in col}
+    else:
+        value_columns = list(df.columns)
+        ci_columns = {}
+
+    if selected_columns == 'all':
+        selected_value_columns = value_columns
+    else:
+        missing = [col for col in selected_columns if col not in value_columns]
+        if missing:
+            raise KeyError(f"Columns {missing} not found in summary file {file}")
+        selected_value_columns = selected_columns
+
+    # Build the result DataFrame with selected columns
+    result_columns = []
+    for col in selected_value_columns:
+        result_columns.append(col)
+        if col in ci_columns:
+            result_columns.append(ci_columns[col])
+
+    # Select only the columns we want
+    result_df = df[result_columns].copy()
+
+    return result_df

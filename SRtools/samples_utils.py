@@ -768,6 +768,21 @@ class Posterior:
                 summery_dict[ds_label+'_MaxLifetime'] = stats_dict_maxLS
 
         self.df = pd.DataFrame(summery_dict).T  
+        
+        # Add ML_lnprob row with highest lnprob value
+        ml_lnprob_value = float(np.max(self.lnprobs))
+        ml_lnprob_row = {}
+        for col in self.df.columns:
+            # For CI columns (std, percentile columns), use [value, value]
+            if col.startswith('percentile_') or col == 'std':
+                ml_lnprob_row[col] = [ml_lnprob_value, ml_lnprob_value]
+            else:
+                # For other columns, use the value as is
+                ml_lnprob_row[col] = ml_lnprob_value
+        
+        # Add the row to the dataframe
+        ml_lnprob_series = pd.Series(ml_lnprob_row, name='ML_lnprob')
+        self.df = pd.concat([self.df, ml_lnprob_series.to_frame().T])
 
         if filepath is not None:
             #add csv at the end of the file name if not already there
