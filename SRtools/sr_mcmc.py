@@ -430,6 +430,9 @@ def inv_transform(theta_trans, set_params={}):
     - extra parameters are preserved unchanged
     """
     pv = parse_theta_trans(theta_trans, set_params)
+    for key in ['xc', 'xc_eta', 'eta_beta', 'xc2_epsilon']:
+        if pv.get(key) is None:
+            print(f"Warning: {key} is NoneType in inv_transform.")
     eta = pv['xc'] / pv['xc_eta']
     beta = pv['eta_beta'] * eta
     epsilon = pv['xc']**2 / pv['xc2_epsilon']
