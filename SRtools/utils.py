@@ -330,3 +330,31 @@ def get_summery_csv_df(file=None, columns='all', format='mode'):
     result_df = df[result_columns].copy()
 
     return result_df
+
+
+def random_logspace_vector(vec, dist):
+    """
+    Given a vector and a positive distance, return a new random vector such that
+    the norm of the difference in log-space is exactly log(dist).
+    The direction is random but the log-space norm constraint is satisfied.
+
+    Args:
+        vec (array-like): Original vector (all elements should be > 0).
+        dist (float): Multiplicative distance (dist > 0).
+
+    Returns:
+        np.ndarray: New vector, positive, at log-space distance log(dist).
+    """
+    vec = np.asarray(vec)
+    if np.any(vec <= 0):
+        raise ValueError("All elements of input vector must be positive for log-space operation.")
+    log_vec = np.log(vec)
+    n = len(vec)
+    # Random direction
+    direction = np.random.randn(n)
+    direction /= np.linalg.norm(direction)
+    # Step in log space
+    step = direction * (np.log(dist))
+    new_log_vec = log_vec + step
+    new_vec = np.exp(new_log_vec)
+    return new_vec

@@ -9,24 +9,25 @@ import os
 import ast
 
 # Import helper functions from readResultsBaysian
-from .readResultsBaysian import getPlotProps, getPrintDict
+from .readResultsBaysian import getPlotProps, getPrintDict, add_image_marker
 
 
-def plotParams2D_from_csv(csv_file, param1, param2, divide_by_param1=None, multiply_param1=None, 
+def plotParams2D(data, param1, param2, divide_by_param1=None, multiply_param1=None, 
                           divide_by_param2=None, multiply_param2=None, dataset_keys='all', 
                           xscale='linear', yscale='linear', save_path=None, figsize=(9,6), 
                           multiple_species=True, ax=None, full_output=False, full_label=False, 
-                          legend=True, plot_props=None, shift_x=1, shift_y=1):
+                          legend=True, plot_props=None, plot_props_images=False, best_fit=True, 
+                          image_color='black', drop_images=False, shift_x=1, shift_y=1):
     """
-    Plots the values of two parameters from a summary CSV file, with param2 as a function of param1.
+    Plots the values of two parameters from a summary CSV file or DataFrame, with param2 as a function of param1.
     
-    The CSV file should have parameters as rows (index) and datasets as columns. Each dataset may have
+    The CSV file or DataFrame should have parameters as rows (index) and datasets as columns. Each dataset may have
     a corresponding CI column named "{dataset_name} 95% CI".
     
     Parameters
     ----------
-    csv_file : str
-        Path to the summary CSV file (e.g., 'summery_mode.csv')
+    data : str or pandas.DataFrame
+        Path to the summary CSV file (e.g., 'summery_mode.csv') or a pandas DataFrame with the same structure
     param1 : str
         Name of the first parameter (row index in CSV)
     param2 : str
@@ -61,6 +62,14 @@ def plotParams2D_from_csv(csv_file, param1, param2, divide_by_param1=None, multi
         Whether to show legend. Defaults to True.
     plot_props : dict, optional
         Dictionary of plot properties for each dataset. If None, will be generated.
+    plot_props_images : bool or dict, optional
+        If dict, contains image information for each dataset. If False, images are not plotted.
+    best_fit : bool, optional
+        Whether to plot best fit points. Note: CSV files may not have best fit data. Defaults to True.
+    image_color : str, optional
+        Color for images when plot_props_images is used. Defaults to 'black'.
+    drop_images : bool, optional
+        Whether to drop images even if plot_props_images is provided. Defaults to False.
     shift_x : float, optional
         Multiplier for x values. Defaults to 1.
     shift_y : float, optional
@@ -72,12 +81,15 @@ def plotParams2D_from_csv(csv_file, param1, param2, divide_by_param1=None, multi
         The axes object used for plotting, or tuple with additional data if full_output is True.
     """
     
-    # Read the CSV file
-    if not os.path.isabs(csv_file):
-        # If relative path, try to find it relative to the Preset_values directory
-        csv_file = os.path.join(os.path.dirname(__file__), 'Preset_values', csv_file)
-    
-    df = pd.read_csv(csv_file, index_col=0)
+    # Handle data - it may be a DataFrame or a file path
+    if isinstance(data, pd.DataFrame):
+        df = data.copy()
+    else:
+        # It's a file path
+        # if not os.path.isabs(data):
+        #     # If relative path, try to find it relative to the Preset_values directory
+        #     data = os.path.join(os.path.dirname(__file__), 'Preset_values', data)
+        df = pd.read_csv(data, index_col=0)
     
     # Get dataset column names (exclude CI columns)
     all_datasets = [col for col in df.columns if ' 95% CI' not in col]
@@ -93,7 +105,12 @@ def plotParams2D_from_csv(csv_file, param1, param2, divide_by_param1=None, multi
     
     # Generate plot properties if not provided
     if plot_props is None:
-        plot_props = getPlotProps(dataset_keys, mult_species=multiple_species)
+        if not plot_props_images:
+            plot_props = getPlotProps(dataset_keys, mult_species=multiple_species)
+        else:
+            plot_props = {}
+            for key in dataset_keys:
+                plot_props[key] = {'color': image_color, 'marker': 'o'}
     
     # Handle divide/multiply parameters as lists
     inputs_dict = {
@@ -204,53 +221,80 @@ def plotParams2D_from_csv(csv_file, param1, param2, divide_by_param1=None, multi
     ax.set_yscale(yscale)
     
     for dataset_key in dataset_keys:
-        try:
-            # Get values and errors
-            x, xerr = getValue(df, param1, dataset_key, 
-                              inputs_dict['multiply_param1'], 
-                              inputs_dict['divide_by_param1'])
-            y, yerr = getValue(df, param2, dataset_key, 
-                              inputs_dict['multiply_param2'], 
-                              inputs_dict['divide_by_param2'])
+        # Check if we should plot this dataset (when plot_props_images is used)
+        if (plot_props_images and dataset_key in plot_props_images.keys()) or not plot_props_images:
+            try:
+                # Get values and errors
+                x, xerr = getValue(df, param1, dataset_key, 
+                                  inputs_dict['multiply_param1'], 
+                                  inputs_dict['divide_by_param1'])
+                y, yerr = getValue(df, param2, dataset_key, 
+                                  inputs_dict['multiply_param2'], 
+                                  inputs_dict['divide_by_param2'])
+                
+                x_values.append(x)
+                y_values.append(y)
+                x_errors.append(xerr)
+                y_errors.append(yerr)
+                keys.append(dataset_key)
+
+
+                # Format error bars for plotting
+                if xerr is not None:
+                    xerr_plot = [[xerr[0]*shift_x], [xerr[1]*shift_x]]
+                else:
+                    xerr_plot = None
+                
+                if yerr is not None:
+                    yerr_plot = [[yerr[0]*shift_y], [yerr[1]*shift_y]]
+                else:
+                    yerr_plot = None
+                
+                # Handle error bar limits for log scale
+                if xscale == 'linear' and xerr is not None and x - xerr[0] < 0:
+                    xerr_plot = [[x*shift_x], [xerr[1]*shift_x]]
+                elif xscale == 'log' and xerr is not None and x - xerr[0] < 1e-2*x:
+                    xerr_plot = [[(x-1e-2*x)*shift_x], [xerr[1]*shift_x]]
+                
+                if yscale == 'linear' and yerr is not None and y - yerr[0] < 0:
+                    yerr_plot = [[y*shift_y], [yerr[1]*shift_y]]
+                elif yscale == 'log' and yerr is not None and y - yerr[0] < 1e-2*y:
+                    yerr_plot = [[(y-1e-2*y)*shift_y], [yerr[1]*shift_y]]
+                
+                # Plot error bars
+                ax.errorbar(x*shift_x, y*shift_y, xerr=xerr_plot, yerr=yerr_plot, 
+                           label=dataset_key, 
+                           color=plot_props[dataset_key]['color'], 
+                           marker=plot_props[dataset_key]['marker'], 
+                           linestyle='None')
+                
+                # Plot images if plot_props_images is provided
+                if plot_props_images:
+                    if not drop_images:
+                        # This code plots the image at an offset so as not to overlap with the data point.
+                        # This takes into account that the image is zoomed in, and that the axis might be in log scale.
+                        if dataset_key in plot_props_images.keys():
+                            img = plot_props_images[dataset_key]['image']
+                            zoom = plot_props_images[dataset_key]['zoom']
+                            offset_factor_x = plot_props_images[dataset_key]['offset'][0]
+                            offset_factor_y = plot_props_images[dataset_key]['offset'][1]
+                            direction = plot_props_images[dataset_key]['direction']
+                            imwidth = img.shape[1]
+                            imheight = img.shape[0]
+                            disp_x, disp_y = ax.transData.transform((x*shift_x, y*shift_y))
+                            disp_offset_x = imwidth * zoom
+                            disp_offset_y = imheight * zoom
+                            new_disp_x = disp_x + disp_offset_x * offset_factor_x
+                            new_disp_y = disp_y + disp_offset_y * offset_factor_y
+                            new_data_x, new_data_y = ax.transData.inverted().transform((new_disp_x, new_disp_y))
+                            offset_x = new_data_x - x*shift_x
+                            offset_y = new_data_y - y*shift_y
+                            
+                            add_image_marker(ax, img, x*shift_x + direction * offset_x, y*shift_y + offset_y, zoom, color=image_color)
             
-            x_values.append(x)
-            y_values.append(y)
-            x_errors.append(xerr)
-            y_errors.append(yerr)
-            keys.append(dataset_key)
-            
-            # Format error bars for plotting
-            if xerr is not None:
-                xerr_plot = [[xerr[0]*shift_x], [xerr[1]*shift_x]]
-            else:
-                xerr_plot = None
-            
-            if yerr is not None:
-                yerr_plot = [[yerr[0]*shift_y], [yerr[1]*shift_y]]
-            else:
-                yerr_plot = None
-            
-            # Handle error bar limits for log scale
-            if xscale == 'linear' and xerr is not None and x - xerr[0] < 0:
-                xerr_plot = [[x*shift_x], [xerr[1]*shift_x]]
-            elif xscale == 'log' and xerr is not None and x - xerr[0] < 1e-2*x:
-                xerr_plot = [[(x-1e-2*x)*shift_x], [xerr[1]*shift_x]]
-            
-            if yscale == 'linear' and yerr is not None and y - yerr[0] < 0:
-                yerr_plot = [[y*shift_y], [yerr[1]*shift_y]]
-            elif yscale == 'log' and yerr is not None and y - yerr[0] < 1e-2*y:
-                yerr_plot = [[(y-1e-2*y)*shift_y], [yerr[1]*shift_y]]
-            
-            # Plot error bars
-            ax.errorbar(x*shift_x, y*shift_y, xerr=xerr_plot, yerr=yerr_plot, 
-                       label=dataset_key, 
-                       color=plot_props[dataset_key]['color'], 
-                       marker=plot_props[dataset_key]['marker'], 
-                       linestyle='None')
-        
-        except (ValueError, KeyError) as e:
-            print(f"Warning: Skipping dataset '{dataset_key}': {e}")
-            continue
+            except (ValueError, KeyError) as e:
+                print(f"Warning: Skipping dataset '{dataset_key}': {e}")
+                continue
     
     ax.set_title(f"{param1_title} vs {param2_title}")
     ax.set_xlabel(param1_title)
