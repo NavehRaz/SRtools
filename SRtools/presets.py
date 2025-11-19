@@ -57,12 +57,12 @@ PRESET_ALIASES = {
     'Humans Female': 'humans_F_combined',
 
     # Denmark male hetro aliases
-    'Denmark_M_1900_hetro': 'Denmark_M_1900',
-    'Denmark_M_1890_hetro': 'Denmark_M_1890',
+    'Denmark_M_1900': 'Denmark_M_1900_hetro',
+    'Denmark_M_1890': 'Denmark_M_1890_hetro',
 
     # Denmark female hetro aliases
-    'Denmark_F_1900_hetro': 'Denmark_F_1900',
-    'Denmark_F_1890_hetro': 'Denmark_F_1890',
+    'Denmark_F_1900': 'Denmark_F_1900_hetro',
+    'Denmark_F_1890': 'Denmark_F_1890_hetro',
     
     # Labrador aliases
     'Labradors': 'Labradors_vetCompass',
@@ -96,10 +96,10 @@ PRESET_ALIASES = {
     'Dog Jack Russell': 'Jack_Russell_vetCompass',
 
     # C. elegans aliases
-    'C. elegans': 'celegance',
-    'c. elegans': 'celegance',
-    'Celegance': 'celegance',
-    'celegans': 'celegance',
+    'C. elegans': 'celegans',
+    'c. elegans': 'celegans',
+    'Celegans': 'celegans',
+    'celegans': 'celegans',
     
     #E. coli aliases
     'E. coli': 'ecoli',
@@ -111,7 +111,16 @@ PRESET_ALIASES = {
     'Yeast': 'yeast',
     'Budding yeast': 'yeast',
     'budding yeast': 'yeast',
-    
+
+    #Guinea pigs aliases
+    'Guinea pigs': 'Guiniea_pig_VC',
+    'guinea pigs': 'Guiniea_pig_VC',
+    'Guinea Pig': 'Guiniea_pig_VC',
+    'guinea pig': 'Guiniea_pig_VC',
+    'gpig': 'Guiniea_pig_VC',
+    'Guinea Pig VC': 'Guiniea_pig_VC',
+    'guinea pig vc': 'Guiniea_pig_VC',
+    'guinea pig vc': 'Guiniea_pig_VC',
 }
 
 

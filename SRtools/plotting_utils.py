@@ -261,12 +261,31 @@ def plotParams2D(data, param1, param2, divide_by_param1=None, multiply_param1=No
                 elif yscale == 'log' and yerr is not None and y - yerr[0] < 1e-2*y:
                     yerr_plot = [[(y-1e-2*y)*shift_y], [yerr[1]*shift_y]]
                 
+                # Extract plot properties, only including those that exist
+                # Valid matplotlib errorbar properties
+                valid_errorbar_props = [
+                    'color', 'marker', 'label', 'alpha', 'markersize', 
+                    'markerfacecolor', 'markeredgewidth', 'markeredgecolor',
+                    'linestyle', 'capsize', 'capthick', 'elinewidth', 'elinecolor',
+                    'capcolor', 'barsabove', 'lolims', 'uplims', 'xlolims', 'xuplims'
+                ]
+                
+                errorbar_kwargs = {'linestyle': 'None'}
+                
+                # Use label from plot_props if available, otherwise use dataset_key
+                if 'label' in plot_props[dataset_key]:
+                    errorbar_kwargs['label'] = plot_props[dataset_key]['label']
+                else:
+                    errorbar_kwargs['label'] = dataset_key
+                
+                # Add all other valid properties that exist in plot_props
+                for prop in valid_errorbar_props:
+                    if prop in plot_props[dataset_key] and prop != 'label':
+                        errorbar_kwargs[prop] = plot_props[dataset_key][prop]
+                
                 # Plot error bars
                 ax.errorbar(x*shift_x, y*shift_y, xerr=xerr_plot, yerr=yerr_plot, 
-                           label=dataset_key, 
-                           color=plot_props[dataset_key]['color'], 
-                           marker=plot_props[dataset_key]['marker'], 
-                           linestyle='None')
+                           **errorbar_kwargs)
                 
                 # Plot images if plot_props_images is provided
                 if plot_props_images:

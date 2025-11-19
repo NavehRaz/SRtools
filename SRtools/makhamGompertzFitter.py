@@ -50,6 +50,8 @@ class GompertzMakehamFitter(dtds.Dataset):
     def calc_survival_and_hazard(self, events=None):
         """
         This function calculates the survival and hazard functions for the dataset.
+        If death_times don't start at 0 (e.g., trimmed data), times are shifted to start at 0
+        for proper fitting, since the Gompertz model assumes time starts at 0.
         """
         T = self.death_times
         if events is not None:
@@ -58,10 +60,27 @@ class GompertzMakehamFitter(dtds.Dataset):
             E = np.ones_like(T)
             self.events = E
 
-        # gmf = MakehamGompertzFitter().fit(T, E)
-        gmf = GompertzFitter().fit(T, E)
+        # Shift times to start at 0 if data is trimmed (doesn't start at 0)
+        # This is necessary because the cumulative hazard function assumes t=0 is the start
+        t_min = np.min(T)
+        if t_min > 1e-6:  # If minimum time is significantly > 0, shift to 0
+            T_shifted = T - t_min
+            self._time_shift = t_min  # Store the shift for potential future use
+        else:
+            T_shifted = T
+            self._time_shift = 0.0
+        
+        # Ensure all times are strictly positive (lifelines requires positive durations)
+        # Add a small epsilon to any zero or negative values
+        epsilon = 1e-8
+        T_shifted = np.maximum(T_shifted, epsilon)
 
-        self.survival = gmf.timeline, np.array(gmf.survival_function_.values)[:, 0]
+        # gmf = MakehamGompertzFitter().fit(T, E)
+        gmf = GompertzFitter().fit(T_shifted, E)
+
+        # Shift timeline back to original time scale
+        timeline_original = gmf.timeline + self._time_shift
+        self.survival = timeline_original, np.array(gmf.survival_function_.values)[:, 0]
         # 95% confidence interval
         try:
             self.kmf_confidence_interval = [
@@ -71,12 +90,14 @@ class GompertzMakehamFitter(dtds.Dataset):
         except:
             print("Confidence interval not available for this dataset.")
             self.kmf_confidence_interval = None
-        self.median_lifetime = gmf.median_survival_time_
+        self.median_lifetime = gmf.median_survival_time_ + self._time_shift
         self.kmf = gmf
 
         # naf = MakehamGompertzFitter().fit(T, event_observed=E)
-        naf = GompertzFitter().fit(T, event_observed=E)
-        self.hazard = naf.timeline, np.array(naf.hazard_.values)[:, 0]
+        naf = GompertzFitter().fit(T_shifted, event_observed=E)
+        # Shift timeline back to original time scale
+        hazard_timeline_original = naf.timeline + self._time_shift
+        self.hazard = hazard_timeline_original, np.array(naf.hazard_.values)[:, 0]
         self.naf = naf
 
     def BIC(self):
