@@ -116,7 +116,7 @@ class Posterior:
         if isinstance(bins, int):
             bins = [bins] * samples.shape[1]
         elif len(bins) != samples.shape[1]:
-            raise ValueError("Bins should be an integer or the length of bins should be equal to the number of features, got bins: {bins} and samples.shape[1]: {samples.shape[1]}")
+            raise ValueError(f"Bins should be an integer or the length of bins should be equal to the number of features, got bins: {bins} and samples.shape[1]: {samples.shape[1]}")
         if isinstance(log, bool):
             log = [log] * samples.shape[1]
         elif len(log) != samples.shape[1]:
@@ -594,13 +594,21 @@ class Posterior:
         if 'default' in transforms:
             transforms = [identity_transform,default_transform1,default_transform2,default_transform3,default_transform4,default_transform5,default_transform6]
             if labels is None:
-                labels = [["xc/eta","beta/eta","xc^2/epsilon","xc"],["eta","beta","epsilon","xc"],
-                          ["sqrt(xc/eta)","s= eta^0.5*xc^1.5/epsilon","beta*xc/epsilon","xc"],
-                          ["eta*xc/epsilon","Fx=beta^2/eta*xc","Dx =beta*epsilon/eta*xc^2","xc"],
-                          ["Pk=beta*k/epsilon","Fk=beta^2/eta*k","beta/eta","xc"],
-                          ["Dk =beta*epsilon/eta*k^2","Fk^2/Dk=beta^3/eta*epsilon","beta/eta","xc"],
-                          ["epsilon/beta^2","k/beta","k^2/epsilon","xc"]]
-            if n_features > 4:
+                if set_xc is not False and set_xc is not None:
+                    labels = [["xc/eta","beta/eta","xc^2/epsilon"],["eta","beta","epsilon"],
+                              ["sqrt(xc/eta)","s= eta^0.5*xc^1.5/epsilon","beta*xc/epsilon"],
+                              ["eta*xc/epsilon","Fx=beta^2/eta*xc","Dx =beta*epsilon/eta*xc^2"],
+                              ["Pk=beta*k/epsilon","Fk=beta^2/eta*k","beta/eta"],
+                              ["Dk =beta*epsilon/eta*k^2","Fk^2/Dk=beta^3/eta*epsilon","beta/eta"],
+                              ["epsilon/beta^2","k/beta","k^2/epsilon"]]
+                else:
+                    labels = [["xc/eta","beta/eta","xc^2/epsilon","xc"],["eta","beta","epsilon","xc"],
+                              ["sqrt(xc/eta)","s= eta^0.5*xc^1.5/epsilon","beta*xc/epsilon","xc"],
+                              ["eta*xc/epsilon","Fx=beta^2/eta*xc","Dx =beta*epsilon/eta*xc^2","xc"],
+                              ["Pk=beta*k/epsilon","Fk=beta^2/eta*k","beta/eta","xc"],
+                              ["Dk =beta*epsilon/eta*k^2","Fk^2/Dk=beta^3/eta*epsilon","beta/eta","xc"],
+                              ["epsilon/beta^2","k/beta","k^2/epsilon","xc"]]
+            if n_features > 4 or (set_xc is not False and set_xc is not None and n_features > 3):
                 extra_labels = ['ExtH']
                 extra_labels += [f'lambda{i}' for i in range(n_features-4)]
                 for i,label in enumerate(labels):
@@ -653,6 +661,7 @@ class Posterior:
                 if label_set[i] in summery_dict.keys():
                     continue
                 
+
                 marginalized_post = post.marginalize_posterior(
                     [j for j in range(n_features) if j !=i], density=True)
                 marginalized_samples = marginalized_post.unique_samples
@@ -2286,7 +2295,7 @@ def default_transform1(sample,kappa, set_xc=None):
     beta = beta_eta * eta
     epsilon = (xc ** 2)/xc2_epsilon 
     if set_xc is not None:
-        return [eta, beta, epsilon]
+        return [eta, beta, epsilon] + list(sample[3:])
     else:
         return [eta, beta, epsilon] + list(sample[3:])
 
@@ -2304,7 +2313,7 @@ def default_transform2(sample, kappa, set_xc=None):
     bxe = beta*xc/epsilon
     
     if set_xc is not None:
-        return [t_eta, s, bxe]
+        return [t_eta, s, bxe] + list(sample[3:])
     else:
         return [t_eta, s, bxe] + list(sample[3:])
 
@@ -2322,7 +2331,7 @@ def default_transform3(sample, kappa, set_xc=None):
     Dx = beta * epsilon / (eta * (xc ** 2))
     
     if set_xc is not None:
-        return [slope, Fx, Dx]
+        return [slope, Fx, Dx] + list(sample[3:])
     else:
         return [slope, Fx, Dx] + list(sample[3:])
 
@@ -2339,7 +2348,7 @@ def default_transform4(sample, kappa, set_xc=None):
     Fk = beta ** 2 / (eta * kappa)
     
     if set_xc is not None:
-        return [Pk, Fk, beta_eta]
+        return [Pk, Fk, beta_eta] + list(sample[3:])
     else:
         return [Pk, Fk, beta_eta] + list(sample[3:])
 
@@ -2355,7 +2364,7 @@ def default_transform5(sample, kappa, set_xc=None):
     Dk = beta * epsilon / (eta * kappa ** 2)
     Fk2_Dk = beta ** 3 / (eta * epsilon)
     if set_xc is not None:
-        return [Dk, Fk2_Dk, beta_eta]
+        return [Dk, Fk2_Dk, beta_eta] + list(sample[3:])
     else:
         return [Dk, Fk2_Dk, beta_eta] + list(sample[3:])
 
@@ -2370,7 +2379,7 @@ def default_transform6(sample,kappa, set_xc=None):
     k_beta = kappa/(beta_eta * eta)
     k2_epsilon = kappa**2/((xc ** 2)/xc2_epsilon )
     if set_xc is not None:
-        return [epsilon_beta2, k_beta, k2_epsilon]
+        return [epsilon_beta2, k_beta, k2_epsilon] + list(sample[3:])
     else:
         return [epsilon_beta2, k_beta, k2_epsilon] + list(sample[3:])
 

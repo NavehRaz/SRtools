@@ -155,7 +155,7 @@ class JointPosterior(su.Posterior):
     def lnprobs(self):
         raise AttributeError("JointPosterior object has no attribute 'lnprobs'")
     
-    def create_posterior_df(self,transforms = ['default'],labels = None, ds=None,ds_labels=None, kappa=0.5, filepath = None, smooth_mode = True, rescale=None, truth=None):
+    def create_posterior_df(self,transforms = ['default'],labels = None, ds=None,ds_labels=None, kappa=0.5, filepath = None, smooth_mode = True, rescale=None, set_xc=False, truth=None):
         """
         Creates a summerey pandas dataframe of the maximum posterior statistics for the samples.
         For each transfor in the transforms list, the statistics are calculated and added to the dataframe.
@@ -185,6 +185,10 @@ class JointPosterior(su.Posterior):
             The value of kappa to use in the transforms that involve kappa. Default is 0.5
         filepath: str
             The path to save the dataframe to as csv. If None, the dataframe will not be saved.
+        set_xc: bool or float, optional
+            If True, uses the xc value from the sample. If a float, uses that fixed xc value for all transforms.
+            When set_xc is provided, the transformed samples will have 3 parameters instead of 4 (xc is not returned).
+            Default is False.
         """
         #if rescale is a float or int, and "default" is in the transforms list, rescale the samples as a rescaling of time:
         n_features = self.unique_samples.shape[1]
@@ -201,12 +205,21 @@ class JointPosterior(su.Posterior):
         if 'default' in transforms:
             transforms = [identity_transform,default_transform1,default_transform2,default_transform3,default_transform4,default_transform5,default_transform6]
             if labels is None:
-                labels = [["xc/eta","beta/eta","xc^2/epsilon","xc"],["eta","beta","epsilon","xc"],
-                          ["sqrt(xc/eta)","s= eta^0.5*xc^1.5/epsilon","beta*xc/epsilon","xc"],
-                          ["eta*xc/epsilon","Fx=beta^2/eta*xc","Dx =beta*epsilon/eta*xc^2","xc"],
-                          ["Pk=beta*k/epsilon","Fk=beta^2/eta*k","beta/eta","xc"],
-                          ["Dk =beta*epsilon/eta*k^2","Fk^2/Dk=beta^3/eta*epsilon","beta/eta","xc"],
-                          ["epsilon/beta^2","k/beta","k^2/epsilon","xc"]]
+                if set_xc is not False and set_xc is not None:
+                    # When set_xc is provided, transformed samples have 3 params instead of 4 (xc is not returned)
+                    labels = [["xc/eta","beta/eta","xc^2/epsilon"],["eta","beta","epsilon"],
+                              ["sqrt(xc/eta)","s= eta^0.5*xc^1.5/epsilon","beta*xc/epsilon"],
+                              ["eta*xc/epsilon","Fx=beta^2/eta*xc","Dx =beta*epsilon/eta*xc^2"],
+                              ["Pk=beta*k/epsilon","Fk=beta^2/eta*k","beta/eta"],
+                              ["Dk =beta*epsilon/eta*k^2","Fk^2/Dk=beta^3/eta*epsilon","beta/eta"],
+                              ["epsilon/beta^2","k/beta","k^2/epsilon"]]
+                else:
+                    labels = [["xc/eta","beta/eta","xc^2/epsilon","xc"],["eta","beta","epsilon","xc"],
+                              ["sqrt(xc/eta)","s= eta^0.5*xc^1.5/epsilon","beta*xc/epsilon","xc"],
+                              ["eta*xc/epsilon","Fx=beta^2/eta*xc","Dx =beta*epsilon/eta*xc^2","xc"],
+                              ["Pk=beta*k/epsilon","Fk=beta^2/eta*k","beta/eta","xc"],
+                              ["Dk =beta*epsilon/eta*k^2","Fk^2/Dk=beta^3/eta*epsilon","beta/eta","xc"],
+                              ["epsilon/beta^2","k/beta","k^2/epsilon","xc"]]
             if n_features > 4:
                 extra_labels = ['ExtH']
                 extra_labels += [f'lambda{i}' for i in range(n_features-4)]
@@ -239,24 +252,47 @@ class JointPosterior(su.Posterior):
         stats=['mean', 'std', 'mode', 'percentiles']
         summery_dict = {}
         for transform, label_set in zip(transforms, labels):
-            trans = lambda x: transform(x,kappa)
-            transformed_samples_list = [np.apply_along_axis(trans, 1, samples) for samples in self.samples_list]
+            # Handle set_xc logic
+            # When set_xc is used, samples are already [xc/eta, beta/eta, xc^2/epsilon] (or with ExtH)
+            # and don't contain xc, so we don't trim them - pass samples as-is to transform
+            if set_xc is not False and set_xc is not None:
+                # Use set_xc value (float) - samples are already without xc, pass them as-is (no trimming)
+                trans = lambda x: transform(x, kappa, set_xc=set_xc)
+                transformed_samples_list = [np.apply_along_axis(trans, 1, samples) for samples in self.samples_list]
+            else:
+                trans = lambda x: transform(x, kappa)
+                transformed_samples_list = [np.apply_along_axis(trans, 1, samples) for samples in self.samples_list]
+            
             # Transform truth value
             if truth_rescaled is not None:
-                truth_transformed = trans(truth_rescaled)
+                if set_xc is not False and set_xc is not None:
+                    truth_transformed = transform(truth_rescaled, kappa, set_xc=set_xc)
+                else:
+                    truth_transformed = transform(truth_rescaled, kappa)
             else:
                 truth_transformed = None
-            post = JointPosterior(transformed_samples_list.copy(), self.lnprobs_list.copy(), self.raw_bins, log=self.log, progress_bar=self.progress_bar)
+            
+            # n_features is already correct (samples are already in the format without xc when set_xc is used)
+            n_features_transformed = transformed_samples_list[0].shape[1] if len(transformed_samples_list) > 0 else n_features
+            # Adjust log array to match transformed dimensions
+            if isinstance(self.log, list):
+                log_transformed = self.log[:n_features_transformed] if len(self.log) >= n_features_transformed else self.log
+            elif isinstance(self.log, np.ndarray):
+                log_transformed = self.log[:n_features_transformed] if len(self.log) >= n_features_transformed else self.log
+            else:
+                log_transformed = self.log
+            
+            post = JointPosterior(transformed_samples_list.copy(), self.lnprobs_list.copy(), self.raw_bins, log=log_transformed, progress_bar=self.progress_bar)
             max_liklihood = [transformed_samples_list[i][np.argmax(self.lnprobs_list[i])] for i in range(len(transformed_samples_list))]
             max_likelihood_overall_index = np.argmax([max(self.lnprobs_list[i]) for i in range(len(self.lnprobs_list))])
             max_liklihood = max_liklihood[max_likelihood_overall_index]
             mode_overall = post.get_mode()
-            for i in range(n_features):
+            for i in range(n_features_transformed):
                 #check if the label is already calculated
                 if label_set[i] in summery_dict.keys():
                     continue
             
-                marginalized_post = post.marginalize_posterior([j for j in range(n_features) if j != i], density=True)
+                marginalized_post = post.marginalize_posterior([j for j in range(n_features_transformed) if j != i], density=True)
                 marginalized_samples = marginalized_post.unique_samples
                 marginalized_lnprobs = marginalized_post.lnprobs_density - marginalized_post.evidence
                 marginalized_dthetas = marginalized_post.dthetas
@@ -264,7 +300,12 @@ class JointPosterior(su.Posterior):
                 marginalized_lnprobs = marginalized_lnprobs + marginalized_prior_lnprobs
                 stats_dict = su.getStats(marginalized_samples, marginalized_lnprobs, marginalized_dthetas, stats=stats, percentiles=percentiles, smooth_mode=smooth_mode)
                 #if log[i] then exponentiate the mean, mode and percentiles. std is [exp(mean+std)-exp(mean),exp(mean)-exp(mean-std)]
-                if self.log[i]:
+                # Use log_transformed for transformed features
+                if isinstance(log_transformed, (list, np.ndarray)):
+                    log_val = log_transformed[i]
+                else:
+                    log_val = log_transformed
+                if log_val:
                     stats_dict['std'] = [np.exp(stats_dict['mean'])-np.exp(stats_dict['mean']-stats_dict['std']),np.exp(stats_dict['mean']+stats_dict['std'])-np.exp(stats_dict['mean'])]
                     stats_dict['mean'] = np.exp(stats_dict['mean'])
                     stats_dict['mode'] = np.exp(stats_dict['mode'])
@@ -548,18 +589,29 @@ class JointPosterior(su.Posterior):
 
         return loaded_posterior
 
-def identity_transform(sample,kappa):
+def identity_transform(sample,kappa, set_xc=None):
     return sample
 
-def default_transform1(sample,kappa):
-    xc_eta, beta_eta, xc2_epsilon, xc = sample[:4]
+def default_transform1(sample,kappa, set_xc=None):
+    if set_xc is not None:
+        xc_eta, beta_eta, xc2_epsilon = sample[:3]
+        xc = set_xc
+    else:
+        xc_eta, beta_eta, xc2_epsilon, xc = sample[:4]
     eta = xc / xc_eta
     beta = beta_eta * eta
     epsilon = (xc ** 2)/xc2_epsilon 
-    return [eta, beta, epsilon] + list(sample[3:])
+    if set_xc is not None:
+        return [eta, beta, epsilon] + list(sample[3:])
+    else:
+        return [eta, beta, epsilon] + list(sample[3:])
 
-def default_transform2(sample, kappa):
-    xc_eta, beta_eta, xc2_epsilon, xc = sample[:4]
+def default_transform2(sample, kappa, set_xc=None):
+    if set_xc is not None:
+        xc_eta, beta_eta, xc2_epsilon = sample[:3]
+        xc = set_xc
+    else:
+        xc_eta, beta_eta, xc2_epsilon, xc = sample[:4]
     eta = xc / xc_eta
     beta = beta_eta * eta
     epsilon = (xc ** 2)/xc2_epsilon 
@@ -567,10 +619,17 @@ def default_transform2(sample, kappa):
     s = xc2_epsilon/t_eta
     bxe = beta*xc/epsilon
     
-    return [t_eta, s, bxe] + list(sample[3:])
+    if set_xc is not None:
+        return [t_eta, s, bxe] + list(sample[3:])
+    else:
+        return [t_eta, s, bxe] + list(sample[3:])
 
-def default_transform3(sample, kappa):
-    xc_eta, beta_eta, xc2_epsilon, xc = sample[:4]
+def default_transform3(sample, kappa, set_xc=None):
+    if set_xc is not None:
+        xc_eta, beta_eta, xc2_epsilon = sample[:3]
+        xc = set_xc
+    else:
+        xc_eta, beta_eta, xc2_epsilon, xc = sample[:4]
     eta = xc / xc_eta
     beta = beta_eta * eta
     epsilon = (xc ** 2)/xc2_epsilon 
@@ -578,34 +637,58 @@ def default_transform3(sample, kappa):
     Fx = beta ** 2 / (eta * xc)
     Dx = beta * epsilon / (eta * (xc ** 2))
     
-    return [slope, Fx, Dx] + list(sample[3:])
+    if set_xc is not None:
+        return [slope, Fx, Dx] + list(sample[3:])
+    else:
+        return [slope, Fx, Dx] + list(sample[3:])
 
-def default_transform4(sample, kappa):
-    xc_eta, beta_eta, xc2_epsilon, xc = sample[:4]
+def default_transform4(sample, kappa, set_xc=None):
+    if set_xc is not None:
+        xc_eta, beta_eta, xc2_epsilon = sample[:3]
+        xc = set_xc
+    else:
+        xc_eta, beta_eta, xc2_epsilon, xc = sample[:4]
     eta = xc / xc_eta
     beta = beta_eta * eta
     epsilon = (xc ** 2)/xc2_epsilon 
     Pk = beta * kappa / epsilon
     Fk = beta ** 2 / (eta * kappa)
     
-    return [Pk, Fk, beta_eta] + list(sample[3:])
+    if set_xc is not None:
+        return [Pk, Fk, beta_eta] + list(sample[3:])
+    else:
+        return [Pk, Fk, beta_eta] + list(sample[3:])
 
-def default_transform5(sample, kappa):
-    xc_eta, beta_eta, xc2_epsilon, xc = sample[:4]
+def default_transform5(sample, kappa, set_xc=None):
+    if set_xc is not None:
+        xc_eta, beta_eta, xc2_epsilon = sample[:3]
+        xc = set_xc
+    else:
+        xc_eta, beta_eta, xc2_epsilon, xc = sample[:4]
     eta = xc / xc_eta
     beta = beta_eta * eta
     epsilon = (xc ** 2)/xc2_epsilon 
     Dk = beta * epsilon / (eta * kappa ** 2)
     Fk2_Dk = beta ** 3 / (eta * epsilon)
-    return [Dk, Fk2_Dk, beta_eta] + list(sample[3:])
+    if set_xc is not None:
+        return [Dk, Fk2_Dk, beta_eta] + list(sample[3:])
+    else:
+        return [Dk, Fk2_Dk, beta_eta] + list(sample[3:])
 
-def default_transform6(sample,kappa):
-    xc_eta, beta_eta, xc2_epsilon, xc = sample[:4]
+def default_transform6(sample,kappa, set_xc=None):
+    if set_xc is not None:
+        xc_eta, beta_eta, xc2_epsilon = sample[:3]
+        xc = set_xc
+    else:
+        xc_eta, beta_eta, xc2_epsilon, xc = sample[:4]
     epsilon_beta2 = xc_eta**2/(beta_eta**2 * xc2_epsilon)
     eta = xc / xc_eta
     k_beta = kappa/(beta_eta * eta)
     k2_epsilon = kappa**2/((xc ** 2)/xc2_epsilon )
-    return [epsilon_beta2, k_beta, k2_epsilon] + list(sample[3:])
+    if set_xc is not None:
+        return [epsilon_beta2, k_beta, k2_epsilon] + list(sample[3:])
+    else:
+        return [epsilon_beta2, k_beta, k2_epsilon] + list(sample[3:])
 
 def round_value(value, precision=2):
     if value == 0:
