@@ -1465,38 +1465,92 @@ def trim_to_range(t,vals,time_range,renormalize_survival = False):
 
 
 
-def dataCollectionFromExcel(excel_file_name,properties=None,additional_properties=None, warnings =True, event_is_censored=False):
+def dataCollectionFromExcel(
+    excel_file_name,
+    death_times_column=None,
+    events_column=None,
+    external_hazard=None,
+    properties=None,
+    additional_properties=None,
+    remove_nan_rows=False,
+    bandwidth=3,
+    sheet=None,
+    excel_has_header=0,
+    event_is_censored=False,
+    warnings=True,
+):
     """
-    This function loads the dataset collection from an excel file. It assumes that all the sheets in the excel file are datasets (each sheet is a dataset).
-    The sheet name is added as a property to the dataset.
+    Loads a dataset collection from an excel file. 
+    By default, loads all sheets in the excel file as separate datasets.
+    Sheet name is attached as a 'sheet' property for each dataset.
+    All arguments accepted by dsFromFile can be passed, except path (replaced by excel_file_name here).
+
     Parameters:
         excel_file_name (str): Path to the excel file.
-        properties (list, optional): List of properties to separate the datasets by. Default is None.
-        additional_properties (list, optional): List of additional properties to load from the files. Default is None.
-        event_is_censored (bool, optional): If True, the events column is a censor column (1=censored, 0=event).
-                                            Events will be flipped when loading. Default is False.
+        death_times_column (str, optional): Column name for death times.
+        events_column (str, optional): Column name for events.
+        external_hazard (array-like, optional): External hazard data.
+        properties (list, optional): Properties to collect from each dataset.
+        additional_properties (list, optional): Additional properties.
+        remove_nan_rows (bool, optional): Whether to remove rows with NaN values.
+        bandwidth (int, optional): Bandwidth for smoothing hazard.
+        sheet (str, list, or None): Optional. Sheet or sheets to load. If None, loads all sheets.
+        excel_has_header (int, optional): Which row is the header (default 0).
+        event_is_censored (bool): If True, events column is a censor column (1=censored,0=event).
+        warnings (bool, optional): Attach warnings to DatasetCollection. Default True.
     """
     xls = pd.ExcelFile(excel_file_name)
     datasets = []
+
+    # Decide which sheets to process
+    if sheet is None:
+        sheets_to_iterate = xls.sheet_names
+    elif isinstance(sheet, (list, tuple)):
+        sheets_to_iterate = list(sheet)
+    else:
+        sheets_to_iterate = [sheet]
+
+    # The logic here ensures behaviour is unchanged for default (all sheets) case
+    # Gather all properties like before
     if properties is None and additional_properties is None:
         all_properties = None
     else:
-        all_properties =[]
-        props =[properties,additional_properties]
+        all_properties = []
+        props = [properties, additional_properties]
         for prop in props:
             if prop is not None:
-                all_properties+=prop
+                all_properties += prop
 
+    # For DatasetCollection, ensure 'sheet' is included in the top-level properties list
     if properties is None:
-            properties = []
-    properties.append('sheet')
+        properties_final = []
+    else:
+        properties_final = list(properties)
+    if 'sheet' not in properties_final:
+        properties_final.append('sheet')
 
-    for sheet in xls.sheet_names:
-        dataset = dsFromFile(xls, sheet=sheet, properties=all_properties, event_is_censored=event_is_censored)
-        dataset.addProperty('sheet', sheet)
+    for sh in sheets_to_iterate:
+        dataset = dsFromFile(
+            xls,
+            sheet=sh,
+            death_times_column=death_times_column,
+            events_column=events_column,
+            external_hazard=external_hazard,
+            properties=all_properties,
+            remove_nan_rows=remove_nan_rows,
+            bandwidth=bandwidth,
+            excel_has_header=excel_has_header,
+            event_is_censored=event_is_censored,
+        )
+        dataset.addProperty('sheet', sh)
         datasets.append(dataset)
 
-    return DatasetCollection(datasets=datasets, properties=properties, additional_properties=additional_properties, warnings=warnings)
+    return DatasetCollection(
+        datasets=datasets,
+        properties=properties_final,
+        additional_properties=additional_properties,
+        warnings=warnings
+    )
 
 
 

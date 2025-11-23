@@ -43,18 +43,20 @@ PRESET_ALIASES = {
     'Drosophila Melanogaster': 'drosophila_441',
     
     # Human male aliases
-    'humans_M': 'humans_M_combined',
-    'Humans M': 'humans_M_combined',
-    'Humans_M': 'humans_M_combined',
-    'humans male': 'humans_M_combined',
-    'Humans Male': 'humans_M_combined',
+    'humans_M': 'combined_human_M',
+    'Humans M': 'combined_human_M',
+    'Humans_M': 'combined_human_M',
+    'humans male': 'combined_human_M',
+    'Humans Male': 'combined_human_M',
+    'humans_M_combined': 'combined_human_M',
     
     # Human female aliases
-    'humans_F': 'humans_F_combined',
-    'Humans F': 'humans_F_combined',
-    'Humans_F': 'humans_F_combined',
-    'humans female': 'humans_F_combined',
-    'Humans Female': 'humans_F_combined',
+    'humans_F': 'combined_human_F',
+    'Humans F': 'combined_human_F',
+    'Humans_F': 'combined_human_F',
+    'humans female': 'combined_human_F',
+    'Humans Female': 'combined_human_F',
+    'humans_F_combined': 'combined_human_F',
 
     # Denmark male hetro aliases
     'Denmark_M_1900': 'Denmark_M_1900_hetro',
@@ -124,7 +126,7 @@ PRESET_ALIASES = {
 }
 
 
-def getTheta(preset_name="humans_M_combined",type = "mode_overall",time_unit='auto'):
+def getTheta(preset_name="humans_M_combined",type = "mode_overall",time_unit='auto',ExtH =False):
     """
     This function is used to get the theta values for a given organism (preset_name).
     The preset can originate from different fir types: 
@@ -152,10 +154,12 @@ def getTheta(preset_name="humans_M_combined",type = "mode_overall",time_unit='au
     # Determine time unit conversion factor
     if time_unit == 'auto':
         # Auto-detect based on preset name
-        if any(keyword in preset_name.lower() for keyword in ['human','sweden','denmark', 'dog', 'cat', 'labrador', 'staffy', 'german', 'jack']):
+        if any(keyword in preset_name.lower() for keyword in ['human','sweden','denmark', 'dog', 'cat', 'labrador', 'staffy', 'german', 'jack','pig','guinea pigs']):
             time_unit = 'years'
         elif any(keyword in preset_name.lower() for keyword in ['ecoli', 'e. coli']):
             time_unit = 'hours'
+        elif any(keyword in preset_name.lower() for keyword in ['mice', 'mouse']):
+            time_unit = 'weeks'
         elif any(keyword in preset_name.lower() for keyword in ['yeast']):
             time_unit = 'generations'
         else:
@@ -170,6 +174,8 @@ def getTheta(preset_name="humans_M_combined",type = "mode_overall",time_unit='au
         s = 1.0/24.0
     elif time_unit == 'generations':
         s = 3.0/24.0
+    elif time_unit == 'weeks':
+        s = 7.0
     else:
         raise ValueError(f"Unknown time_unit: {time_unit}. Must be one of 'auto', 'days', 'years', 'hours', 'generations'")
     
@@ -222,8 +228,14 @@ def getTheta(preset_name="humans_M_combined",type = "mode_overall",time_unit='au
         epsilon = epsilon * s  # epsilon -> epsilon*s
         xc = xc  # xc -> xc (no change)
     
-    # Return the vector [eta, beta, epsilon, xc]
-    return np.array([eta, beta, epsilon, xc])
+    if ExtH:
+        external_hazard = df.loc['ExtH', preset_name]
+        # If the external_hazard is empty string, convert to None. Otherwise, keep as is.
+        if external_hazard == '':
+            external_hazard = None
+        return np.array([eta, beta, epsilon, xc, external_hazard])
+    else:
+        return np.array([eta, beta, epsilon, xc])
     
 
 def get_preset_names(type = "mode_overall"):
@@ -274,6 +286,7 @@ def get_config_params(
         # Define conversion factors to days
         to_days = {
             'days': 1.0,
+            'weeks': 7.0,
             'years': 365,
             'hours': 1.0 / 24.0,
             'generations': 3.0/24.0, 
@@ -292,10 +305,12 @@ def get_config_params(
     
     # Auto-detect original time unit from preset_name
     preset_name_lower = preset_name.lower()
-    if any(keyword in preset_name_lower for keyword in ['human','sweden','denmark', 'dog', 'cat', 'labrador', 'staffy', 'german', 'jack']):
+    if any(keyword in preset_name_lower for keyword in ['human','sweden','denmark', 'dog', 'cat', 'labrador', 'staffy', 'german', 'jack','pig','guinea pigs']):
         original_time_unit = 'years'
     elif any(keyword in preset_name_lower for keyword in ['ecoli', 'e. coli']):
         original_time_unit = 'hours'
+    elif any(keyword in preset_name_lower for keyword in ['mice', 'mouse']):
+        original_time_unit = 'weeks'
     elif any(keyword in preset_name_lower for keyword in ['yeast']):
         original_time_unit = 'generations'
     else:
@@ -370,6 +385,7 @@ def getSim(
     time_step_multiplier=None,
     method='brownian_bridge',
     parallel=False,
+    ExtH = True
 ):
     """
     Returns an srh.SR_Hetro object for the given preset, using the correct theta and configuration parameters.
@@ -377,7 +393,7 @@ def getSim(
     """
     # Get theta for the preset unless overridden
     if theta is None:
-        theta_val = getTheta(preset_name=preset_name, type=type, time_unit=time_unit)
+        theta_val = getTheta(preset_name=preset_name, type=type, time_unit=time_unit, ExtH=ExtH)
     else:
         theta_val = theta
 
@@ -406,4 +422,4 @@ def getSim(
     if time_step_multiplier is not None:
         config['time_step_multiplier'] = time_step_multiplier
 
-    return srh.getSrHetro(theta_val, method=method, parallel=parallel, **config)
+    return srh.getSrHetro(theta_val[:-1], external_hazard=theta_val[-1], method=method, parallel=parallel, **config)
