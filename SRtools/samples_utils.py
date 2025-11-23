@@ -592,7 +592,7 @@ class Posterior:
 
 
         if 'default' in transforms:
-            transforms = [identity_transform,default_transform1,default_transform2,default_transform3,default_transform4,default_transform5,default_transform6]
+            transforms = [identity_transform,default_transform1,default_transform2,default_transform3,default_transform4,default_transform5,default_transform6,default_transform7]
             if labels is None:
                 if set_xc is not False and set_xc is not None:
                     labels = [["xc/eta","beta/eta","xc^2/epsilon"],["eta","beta","epsilon"],
@@ -600,14 +600,16 @@ class Posterior:
                               ["eta*xc/epsilon","Fx=beta^2/eta*xc","Dx =beta*epsilon/eta*xc^2"],
                               ["Pk=beta*k/epsilon","Fk=beta^2/eta*k","beta/eta"],
                               ["Dk =beta*epsilon/eta*k^2","Fk^2/Dk=beta^3/eta*epsilon","beta/eta"],
-                              ["epsilon/beta^2","k/beta","k^2/epsilon"]]
+                              ["epsilon/beta^2","k/beta","k^2/epsilon"],
+                              ["eta_xc","beta_xc","epsilon_xc2"]]
                 else:
                     labels = [["xc/eta","beta/eta","xc^2/epsilon","xc"],["eta","beta","epsilon","xc"],
                               ["sqrt(xc/eta)","s= eta^0.5*xc^1.5/epsilon","beta*xc/epsilon","xc"],
                               ["eta*xc/epsilon","Fx=beta^2/eta*xc","Dx =beta*epsilon/eta*xc^2","xc"],
                               ["Pk=beta*k/epsilon","Fk=beta^2/eta*k","beta/eta","xc"],
                               ["Dk =beta*epsilon/eta*k^2","Fk^2/Dk=beta^3/eta*epsilon","beta/eta","xc"],
-                              ["epsilon/beta^2","k/beta","k^2/epsilon","xc"]]
+                              ["epsilon/beta^2","k/beta","k^2/epsilon","xc"],
+                              ["eta_xc","beta_xc","epsilon_xc2","xc"]]
             if n_features > 4 or (set_xc is not False and set_xc is not None and n_features > 3):
                 extra_labels = ['ExtH']
                 extra_labels += [f'lambda{i}' for i in range(n_features-4)]
@@ -2382,6 +2384,20 @@ def default_transform6(sample,kappa, set_xc=None):
         return [epsilon_beta2, k_beta, k2_epsilon] + list(sample[3:])
     else:
         return [epsilon_beta2, k_beta, k2_epsilon] + list(sample[3:])
+
+def default_transform7(sample,kappa, set_xc=None):
+    if set_xc is not None:
+        xc_eta, beta_eta, xc2_epsilon = sample[:3]
+        xc = set_xc
+    else:
+        xc_eta, beta_eta, xc2_epsilon, xc = sample[:4]
+    eta_xc = 1 / xc_eta
+    beta_xc = beta_eta * eta_xc
+    epsilon_xc2 = 1/xc2_epsilon 
+    if set_xc is not None:
+        return [eta_xc, beta_xc, epsilon_xc2] + list(sample[3:])
+    else:
+        return [eta_xc, beta_xc, epsilon_xc2] + list(sample[3:])
 
 def round_value(value, precision=2):
     if value == 0:
