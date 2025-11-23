@@ -116,7 +116,7 @@ class Posterior:
         if isinstance(bins, int):
             bins = [bins] * samples.shape[1]
         elif len(bins) != samples.shape[1]:
-            raise ValueError("Bins should be an integer or the length of bins should be equal to the number of features")
+            raise ValueError("Bins should be an integer or the length of bins should be equal to the number of features, got bins: {bins} and samples.shape[1]: {samples.shape[1]}")
         if isinstance(log, bool):
             log = [log] * samples.shape[1]
         elif len(log) != samples.shape[1]:
