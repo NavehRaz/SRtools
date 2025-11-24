@@ -213,7 +213,7 @@ class JointPosterior(su.Posterior):
                               ["Pk=beta*k/epsilon","Fk=beta^2/eta*k","beta/eta"],
                               ["Dk =beta*epsilon/eta*k^2","Fk^2/Dk=beta^3/eta*epsilon","beta/eta"],
                               ["epsilon/beta^2","k/beta","k^2/epsilon"],
-                              ["eta_xc","beta_xc","epsilon_xc2"]]
+                              ["eta/xc","beta/xc","epsilon/xc^2"]]
                 else:
                     labels = [["xc/eta","beta/eta","xc^2/epsilon","xc"],["eta","beta","epsilon","xc"],
                               ["sqrt(xc/eta)","s= eta^0.5*xc^1.5/epsilon","beta*xc/epsilon","xc"],
@@ -221,7 +221,7 @@ class JointPosterior(su.Posterior):
                               ["Pk=beta*k/epsilon","Fk=beta^2/eta*k","beta/eta","xc"],
                               ["Dk =beta*epsilon/eta*k^2","Fk^2/Dk=beta^3/eta*epsilon","beta/eta","xc"],
                               ["epsilon/beta^2","k/beta","k^2/epsilon","xc"],
-                              ["eta_xc","beta_xc","epsilon_xc2","xc"]]
+                              ["eta/xc","beta/xc","epsilon/xc^2","k/xc"]]
             if n_features > 4:
                 extra_labels = ['ExtH']
                 extra_labels += [f'lambda{i}' for i in range(n_features-4)]
@@ -701,10 +701,13 @@ def default_transform7(sample,kappa, set_xc=None):
     eta_xc = 1 / xc_eta
     beta_xc = beta_eta * eta_xc
     epsilon_xc2 = 1/xc2_epsilon 
+    kappa_xc = kappa /xc
     if set_xc is not None:
         return [eta_xc, beta_xc, epsilon_xc2] + list(sample[3:])
+    elif len(sample) > 4:
+        return [eta_xc, beta_xc, epsilon_xc2, kappa_xc] + list(sample[4:])
     else:
-        return [eta_xc, beta_xc, epsilon_xc2] + list(sample[3:])
+        return [eta_xc, beta_xc, epsilon_xc2, kappa_xc]
 
 def round_value(value, precision=2):
     if value == 0:
