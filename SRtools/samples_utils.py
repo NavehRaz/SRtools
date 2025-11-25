@@ -1529,6 +1529,9 @@ def bin_index(samples, bins, index,log =False, return_bins=False):
             bins = np.linspace(bottom,top, bins + 1)
 
     binned_index = np.digitize(samples[:, index], bins)
+    #if any binned index = len(bins), set it to len(bins) - 1
+    binned_index[binned_index == len(bins)] = len(bins) - 1
+    
     #print the samples that have binned_index = 0 or binned_index = len(bins)
     if (binned_index == 0).any():
         print(f"Samples with binned_index = 0: {samples[binned_index == 0]}")
