@@ -41,9 +41,9 @@ class Dataset:
             Returns the median lifetime of the dataset.
         getSteepness(method='IQR'):
             Returns the steepness of the survival function.
-        plotHazard(ax=None, **kwargs):
+        plotHazard(ax=None, time_range=None, **kwargs):
             Plots the hazard function.
-        plotScaledHazard(ax=None, **kwargs):
+        plotScaledHazard(ax=None, time_range=None, **kwargs):
             Plots the scaled hazard function.
         getHazard():
             Returns the hazard function for the dataset.
@@ -458,27 +458,40 @@ class Dataset:
             # Assume iterable/list
             return {stat: compute(stat) for stat in types}
 
-    def plotHazard(self, ax=None, **kwargs):
+    def plotHazard(self, ax=None, time_range=None, **kwargs):
         """
         Plots the hazard function.
         
         Parameters:
             ax (matplotlib.axes.Axes, optional): The axes to plot on. Default is None.
+            time_range (array-like, optional): Time range [start, stop] to filter the hazard plot. Default is None.
             **kwargs: Additional keyword arguments for the plot.
         """
         if ax is None:
             fig, ax = plt.subplots()
-        if self.bandwidth is None:
-            self.naf.plot_hazard(ax=ax, **kwargs)
+        
+        if time_range is not None:
+            # Get hazard data and filter by time_range
+            t, h = self.hazard
+            t = t.copy()
+            h = h.copy()
+            # Filter to time range
+            mask = (t >= time_range[0]) & (t <= time_range[1])
+            t_filtered = t[mask]
+            h_filtered = h[mask]
+            ax.plot(t_filtered, h_filtered, **kwargs)
         else:
-            self.naf.plot_hazard(ax=ax, bandwidth=self.bandwidth, **kwargs)
+            if self.bandwidth is None:
+                self.naf.plot_hazard(ax=ax, **kwargs)
+            else:
+                self.naf.plot_hazard(ax=ax, bandwidth=self.bandwidth, **kwargs)
         ax.set_yscale('log')
         ax.set_xlabel('Age')
         ax.spines['right'].set_visible(False)
         ax.spines['top'].set_visible(False)
         return ax
     
-    def plotScaledHazard(self, ax=None,scale =None,clean_plot=True,clean_at = 1e-6, CI=True, trim_by_n=10, **kwargs):
+    def plotScaledHazard(self, ax=None,scale =None,clean_plot=True,clean_at = 1e-6, CI=True, trim_by_n=10, time_range=None, **kwargs):
         """
         Plots the scaled hazard function.
         
@@ -490,6 +503,7 @@ class Dataset:
             CI (bool, optional): Whether to plot confidence intervals. Default is True.
             trim_by_n (int, optional): Trim plot to start after trim_by_n'th death and stop when 
                                       trim_by_n people are still alive. Default is 0 (no trimming).
+            time_range (array-like, optional): Time range [start, stop] to filter the hazard plot. Default is None.
             **kwargs: Additional keyword arguments for the plot.
         """
         if ax is None:
@@ -584,6 +598,12 @@ class Dataset:
             t_orig = hazard_data['t']
             h_orig = hazard_data['h']
             
+            # Apply time_range filtering if requested
+            if time_range is not None:
+                mask = (t_orig >= time_range[0]) & (t_orig <= time_range[1])
+                t_orig = t_orig[mask]
+                h_orig = h_orig[mask]
+            
             # Apply trim_by_n filtering if requested
             if trim_by_n > 0 and t_min is not None and t_max is not None:
                 mask = (t_orig >= t_min) & (t_orig <= t_max)
@@ -609,6 +629,12 @@ class Dataset:
         if ci_data is not None:
             t_ci = ci_data['t']
             h_ci = ci_data['h']
+            
+            # Apply time_range filtering if requested
+            if time_range is not None:
+                mask = (t_ci >= time_range[0]) & (t_ci <= time_range[1])
+                t_ci = t_ci[mask]
+                h_ci = h_ci[mask]
             
             # Apply trim_by_n filtering if requested
             if trim_by_n > 0 and t_min is not None and t_max is not None:

@@ -682,7 +682,7 @@ class Posterior:
                 #round all values to 4 non 0 decimal points:
                 for key in stats_dict.keys():
                     #if the value is a list, round each element
-                    if isinstance(stats_dict[key],list):
+                    if isinstance(stats_dict[key], (list, tuple)):
                         stats_dict[key] = [float(round_value(val,3)) for val in stats_dict[key]]
                     else:
                         stats_dict[key] = float(round_value(stats_dict[key],3))
@@ -1511,11 +1511,14 @@ def bin_index(samples, bins, index,log =False, return_bins=False):
     binned_index: np.ndarray
         The index of the bin to which each sample belongs
     """
+    
     if isinstance(bins, int):
         if log:
             # Use natural logarithm for binning
             min_val = np.log(samples[:, index].min()*0.999)
             max_val = np.log(samples[:, index].max()*1.001)
+            if min_val == max_val:
+                raise ValueError(f"Min value and max value are the same: {min_val}")
             bins = np.exp(np.linspace(min_val, max_val, bins + 1))
         else:
             if samples[:, index].min()<0:
@@ -1526,7 +1529,10 @@ def bin_index(samples, bins, index,log =False, return_bins=False):
                 top = samples[:, index].max()*0.999
             else:
                 top = samples[:, index].max()*1.001
+            if bottom == top:
+                raise ValueError(f"Bottom value and top value are the same: {bottom}")
             bins = np.linspace(bottom,top, bins + 1)
+
 
     binned_index = np.digitize(samples[:, index], bins)
     #if any binned index = len(bins), set it to len(bins) - 1
@@ -1540,6 +1546,13 @@ def bin_index(samples, bins, index,log =False, return_bins=False):
     binned_values = 0.5 * (bins[binned_index] + bins[binned_index - 1])
     binned_samples  = samples.copy()
     binned_samples[:, index] = binned_values
+    if np.any(np.isnan(binned_values)):
+        print(f"binned_values are NaN: {binned_values}")
+        print(f"bins: {bins}")
+        print(f"binned_index: {binned_index}")
+        print(f"samples: {samples}")
+        print(f"index: {index}")
+        raise ValueError(f"binned_values are NaN: {binned_values}")
 
     if return_bins:
         return binned_samples, bins, binned_index
@@ -1613,6 +1626,7 @@ def avarage_samples(binned_samples,lnprobs, calc_prob_volume=False,bins =None,bi
     volume: np.ndarray
         if calc_prob_volume is True, the volume of each bin associated with the avaraged log-probabilities
     """
+    
     raw_unique_samples = defaultdict(lambda: [np.zeros(binned_samples.shape[1]), 0, 0, 0])
     if progress_bar:
         iterator = tqdm(range(binned_samples.shape[0]), desc="Processing samples")
@@ -1632,6 +1646,12 @@ def avarage_samples(binned_samples,lnprobs, calc_prob_volume=False,bins =None,bi
         raw_unique_samples[key][2] += 1
         if calc_prob_volume and raw_unique_samples[key][3] == 0:
             raw_unique_samples[key][3] = [bins[j][int(binned_index[i,j])] - bins[j][int(binned_index[i,j])-1] for j in range(binned_samples.shape[1])]
+            if (np.isnan(np.prod(raw_unique_samples[key][3]))):
+                print('i:', i, 'key:', key)
+                for j in range(binned_samples.shape[1]):
+                    print('j:', j, 'binned_index:', binned_index[i,j], 'bin:', bins[j][int(binned_index[i,j])], 'bin-1:', bins[j][int(binned_index[i,j])-1])
+                print('bins:\n', bins)
+                raise ValueError(f"Volume is NaN: {raw_unique_samples[key][3]}")
             if (np.prod(raw_unique_samples[key][3])<=0):
                 message =f"Volume is zero or negative:  {raw_unique_samples[key][3]}  "
                 for j in range(binned_samples.shape[1]):
@@ -1654,6 +1674,8 @@ def avarage_samples(binned_samples,lnprobs, calc_prob_volume=False,bins =None,bi
         unique_samples.append(raw_unique_samples[i][0])
         dthetas.append(raw_unique_samples[i][3])
         if calc_prob_volume:
+            if (np.prod(raw_unique_samples[i][3]) is None) or np.isnan(np.prod(raw_unique_samples[i][3])):
+                raise ValueError(f"Volume is None: {raw_unique_samples[i][3]}")
             volumes.append(np.prod(raw_unique_samples[i][3]))
     
     if calc_prob_volume:

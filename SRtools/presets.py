@@ -279,6 +279,8 @@ def get_config_params(
     Optionally, you can specify a target time_unit (e.g., 'years', 'days', 'hours', 'generations').
     If time_unit is given and differs from the detected original_time_unit, t_end and time_range will be converted accordingly.
     """
+    
+    
     if time_unit == 'auto':
         time_unit = None
     # Helper: get conversion factor from original_time_unit to time_unit
@@ -321,6 +323,12 @@ def get_config_params(
     if preset_name in PRESET_ALIASES:
         preset_name = PRESET_ALIASES[preset_name]
         print(f"Using alias '{original_preset_name}' -> '{preset_name}'")
+    if preset_name == 'combined_human_M':
+        preset_name = 'Denmark_M_1900_hetro'
+        print(f"Using specific cohort config -> 'Denmark_M_1900_hetro'")
+    if preset_name == 'combined_human_F':
+        preset_name = 'Denmark_F_1900_hetro'
+        print(f"Using specific cohort config for combined_human_F -> 'Denmark_F_1900_hetro'")
 
     csv_filename = 'All_config.csv'
 
