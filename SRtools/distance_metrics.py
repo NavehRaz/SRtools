@@ -104,7 +104,7 @@ def baysianDistance(sr1, sr2, time_range=None, dt =1, debug = False):
     if np.any(np.isnan(log_pdt)):
         if debug:
             print('log_pdt has nan values')
-        return np.NaN
+        return np.nan 
 
     logcdf = np.log(1-kde.cdf(times)) 
     #for every time in death times, find the nearst index in times and get the logp
