@@ -559,6 +559,9 @@ def lnprobTransformed(theta_trans , n, nsteps, t_end, dataSet, metric = 'surviva
     if set_params is None:
         set_params = {}
     
+    test = kwargs.get('test', False)
+    if test:
+        print(f"theta_trans in lnprobTransformed: {theta_trans}")
     # If log_samples is True, exponentiate theta_trans before processing
     if log_samples:
         theta_trans = np.exp(theta_trans)

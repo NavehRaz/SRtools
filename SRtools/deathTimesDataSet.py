@@ -862,7 +862,17 @@ class Dataset:
         Returns:
             datasets (dict): A dictionary of datasets.
         """
-        unique_properties = {prop: np.unique(self.properties[prop]) for prop in properties}
+        unique_properties = {}
+        for prop in properties:
+            vals = self.properties[prop]
+            # Check for mixed types (int/float/str coexist)
+            types = set(type(v) for v in vals)
+            # ignore nan types, since type(np.nan) is always float
+            non_nan_types = set(type(v) for v in vals if not (isinstance(v, float) and np.isnan(v)))
+            # Consider mixed if >1 non-nan type AND not just int/float (which np.unique handles as numbers)
+            if len(non_nan_types) > 1 and not (non_nan_types <= {int, float}):
+                vals = np.array([str(v) for v in vals])
+            unique_properties[prop] = np.unique(vals)
         combos = [[]]
 
         for prop in properties:
