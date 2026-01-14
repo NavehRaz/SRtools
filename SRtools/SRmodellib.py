@@ -516,35 +516,35 @@ class SR(dtds.Dataset):
 
 
 
-    def plotHazard(self, ax=None,label='', smooth =True, scale=1,title='Survival', xlabel='time [years]', ylabel='survival', **kwargs):
-        #plots the hazard.
-        #smooth is provition for inhereting classes (meaning less for the regular SR class)
-        #scale scales time, since the hazard is given per unit time scaling the t axis by a means we need to scale the hazard by 1/a as well
-        t,h = self.hazard
-        t = t*scale
-        h = h/scale 
-        if ax is None:
-            fig, ax = plt.subplots()
-        ax.plot(t,h, **kwargs)
-        ax.legend()
-        ax.set_title(title)
-        ax.set_xlabel(xlabel)
-        ax.set_ylabel(ylabel)
-        return ax
+    # def plotHazard(self, ax=None,label='', smooth =True, scale=1,title='Survival', xlabel='time [years]', ylabel='survival', **kwargs):
+    #     #plots the hazard.
+    #     #smooth is provition for inhereting classes (meaning less for the regular SR class)
+    #     #scale scales time, since the hazard is given per unit time scaling the t axis by a means we need to scale the hazard by 1/a as well
+    #     t,h = self.hazard
+    #     t = t*scale
+    #     h = h/scale 
+    #     if ax is None:
+    #         fig, ax = plt.subplots()
+    #     ax.plot(t,h, **kwargs)
+    #     ax.legend()
+    #     ax.set_title(title)
+    #     ax.set_xlabel(xlabel)
+    #     ax.set_ylabel(ylabel)
+    #     return ax
 
-    def plotSurvival(self, ax=None, scale =1,time_range = None,title='Survival', xlabel='time [years]', ylabel='survival', **kwargs):
-        #plots the survival.
-        #scale scales time
-        t,s = self.getSurvival(time_range=time_range)
-        t=t*scale
-        if ax is None:
-            fig, ax = plt.subplots()
-        ax.plot(t,s,**kwargs)
-        ax.legend()
-        ax.set_title(title)
-        ax.set_xlabel(xlabel)
-        ax.set_ylabel(ylabel)
-        return ax
+    # def plotSurvival(self, ax=None, scale =1,time_range = None,title='Survival', xlabel='time', ylabel='survival', **kwargs):
+    #     #plots the survival.
+    #     #scale scales time
+    #     t,s = self.getSurvival(time_range=time_range)
+    #     t=t*scale
+    #     if ax is None:
+    #         fig, ax = plt.subplots()
+    #     ax.plot(t,s,**kwargs)
+    #     ax.legend()
+    #     ax.set_title(title)
+    #     ax.set_xlabel(xlabel)
+    #     ax.set_ylabel(ylabel)
+    #     return ax
     
     def plotCumHazard(self, linestyle='-',lw=0.6, ax=None,label='', scale=1):
         label = label

@@ -49,20 +49,20 @@ class SR_lf(sr.SR):
 
         return self.survival
     
-    def plotSurvival(self, ax=None, time_range=None, **kwargs):
-        if time_range is not None:
-            ax= super().plotSurvival(ax=ax, time_range=time_range, **kwargs)
-        else:
-            if ax is None:
-                fig, ax = plt.subplots()
-            self.kmf.plot_survival_function(ax=ax, **kwargs)
-        return ax
+    # def plotSurvival(self, ax=None, time_range=None, **kwargs):
+    #     if time_range is not None:
+    #         ax= super().plotSurvival(ax=ax, time_range=time_range, **kwargs)
+    #     else:
+    #         if ax is None:
+    #             fig, ax = plt.subplots()
+    #         self.kmf.plot_survival_function(ax=ax, **kwargs)
+    #     return ax
     
-    def plotHazard(self, ax=None, **kwargs):
-        if ax is None:
-            fig, ax = plt.subplots()
-        self.naf.plot_hazard(ax=ax, bandwidth=self.bandwidth, **kwargs)
-        return ax
+    # def plotHazard(self, ax=None, **kwargs):
+    #     if ax is None:
+    #         fig, ax = plt.subplots()
+    #     self.naf.plot_hazard(ax=ax, bandwidth=self.bandwidth, **kwargs)
+    #     return ax
     
     def get_median_lifetime(self):
         return self.kmf.median_survival_time_

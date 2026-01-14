@@ -126,10 +126,10 @@ PRESET_ALIASES = {
 }
 
 
-def getTheta(preset_name="humans_M_combined",type = "mode_overall",time_unit='auto',ExtH =False):
+def getTheta(preset_name="humans_M_combined",type = "mode_overall",time_unit='auto',ExtH =False, file=None):
     """
     This function is used to get the theta values for a given organism (preset_name).
-    The preset can originate from different fir types: 
+    The preset can originate from different file types: 
      - mode_overall (default): Overall mode of of posterior distribution
      - mode: Mode of marginal posterior distribution of each parameter
      - max_likelihood: parameters from run with highest likelihood
@@ -142,7 +142,80 @@ def getTheta(preset_name="humans_M_combined",type = "mode_overall",time_unit='au
      - 'generations': Convert from days to generations (s=3/24)
     
     Parameter scaling: eta->eta*s^2, beta->beta*s, epsilon->epsilon*s, xc->xc
+    
+    If file is provided, it will be used directly without checking aliases or current_dir.
     """
+    
+    # If file is provided, use it directly
+    if file is not None:
+        # Load the CSV file directly
+        try:
+            df = pd.read_csv(file, index_col=0)
+        except FileNotFoundError:
+            raise FileNotFoundError(f"Could not find preset file: {file}")
+        
+        # Determine time unit conversion factor
+        if time_unit == 'auto':
+            # Auto-detect based on preset name
+            if any(keyword in preset_name.lower() for keyword in ['human','sweden','denmark', 'dog', 'cat', 'labrador', 'staffy', 'german', 'jack','pig','guinea pigs']):
+                time_unit = 'years'
+            elif any(keyword in preset_name.lower() for keyword in ['ecoli', 'e. coli']):
+                time_unit = 'hours'
+            elif any(keyword in preset_name.lower() for keyword in ['mice', 'mouse']):
+                time_unit = 'weeks'
+            elif any(keyword in preset_name.lower() for keyword in ['yeast']):
+                time_unit = 'generations'
+            else:
+                time_unit = 'days'  # Default for other organisms
+        
+        # Set conversion factor based on time unit
+        if time_unit == 'days':
+            s = 1.0
+        elif time_unit == 'years':
+            s = 365.0
+        elif time_unit == 'hours':
+            s = 1.0/24.0
+        elif time_unit == 'generations':
+            s = 3.0/24.0
+        elif time_unit == 'weeks':
+            s = 7.0
+        else:
+            raise ValueError(f"Unknown time_unit: {time_unit}. Must be one of 'auto', 'days', 'years', 'hours', 'generations'")
+        
+        # Check if the preset_name exists in the columns
+        if preset_name not in df.columns:
+            available_presets = list(df.columns)
+            raise ValueError(f"Preset '{preset_name}' not found. Available presets: {available_presets}")
+        
+        # Extract the required parameters: xc/eta, beta/eta, xc^2/epsilon, xc
+        try:
+            xc_eta = df.loc['xc/eta', preset_name]
+            beta_eta = df.loc['beta/eta', preset_name]
+            xc_2_epsilon = df.loc['xc^2/epsilon', preset_name]
+            xc = df.loc['xc', preset_name]
+        except KeyError as e:
+            raise KeyError(f"Parameter {e} not found in the preset data")
+        
+        eta = xc/xc_eta
+        beta = beta_eta*eta
+        epsilon = xc**2/xc_2_epsilon
+
+        # Apply time unit conversion if needed
+        if s != 1.0:
+            print(f"Converting time units: days -> {time_unit} (s={s})")
+            eta = eta * (s**2)  # eta -> eta*s^2
+            beta = beta * s     # beta -> beta*s
+            epsilon = epsilon * s  # epsilon -> epsilon*s
+            xc = xc  # xc -> xc (no change)
+        
+        if ExtH:
+            external_hazard = df.loc['ExtH', preset_name]
+            # If the external_hazard is empty string, convert to None. Otherwise, keep as is.
+            if external_hazard == '':
+                external_hazard = None
+            return np.array([eta, beta, epsilon, xc, external_hazard])
+        else:
+            return np.array([eta, beta, epsilon, xc])
 
     #load the preset
     # Check if preset_name is an alias and convert to actual name

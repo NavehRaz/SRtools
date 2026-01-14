@@ -868,9 +868,9 @@ class Dataset:
             # Check for mixed types (int/float/str coexist)
             types = set(type(v) for v in vals)
             # ignore nan types, since type(np.nan) is always float
-            non_nan_types = set(type(v) for v in vals if not (isinstance(v, float) and np.isnan(v)))
+            # non_nan_types = set(type(v) for v in vals if not (isinstance(v, float) and np.isnan(v)))
             # Consider mixed if >1 non-nan type AND not just int/float (which np.unique handles as numbers)
-            if len(non_nan_types) > 1 and not (non_nan_types <= {int, float}):
+            if len(types) > 1 and not (types <= {int, float}):
                 vals = np.array([str(v) for v in vals])
             unique_properties[prop] = np.unique(vals)
         combos = [[]]
@@ -936,7 +936,7 @@ class DatasetCollection:
     This class contains a collection of datasets and allows for comparison of survival and hazard functions, 
     and check for batch effects.
     """
-    def __init__(self, file_names =None, datasets=None, properties = None, additional_properties = None,warnings = True, death_times_column = None, events_column = None,use_base_file_name = True, event_is_censored=False):
+    def __init__(self, file_names =None, datasets=None, properties = None, additional_properties = None,warnings = True, death_times_column = None, events_column = None,use_base_file_name = True, event_is_censored=False,remove_nans=True):
         """
         This function initializes the DatasetCollection object. If file_names is provided, the datasets are loaded from the files.
         If both file_names and datasets are none, an empty dictionary is created.
@@ -978,7 +978,8 @@ class DatasetCollection:
         if file_names is not None:
             for file_name in file_names:
                 dataset = dsFromFile(file_name, properties=all_properties, death_times_column = death_times_column, events_column = events_column, event_is_censored=event_is_censored)
-                dataset.removeNans()
+                if remove_nans:
+                    dataset.removeNans()
                 if use_base_file_name:
                     file_name = file_name.split('/')[-1]
                 if properties is not None:
@@ -1040,8 +1041,13 @@ class DatasetCollection:
                     for d in data:
                         if prop in d:
                             idx = properties.index(prop)
-                            if d.split(':_')[1] in value:
-                                match[idx] = True
+                            if isinstance(value, list):
+                                if d.split(':_')[1] in value:
+                                    match[idx] = True
+                            else:
+                                if d.split(':_')[1] == value:
+                                    match[idx] = True
+                            
                 if all(match):
                     keys.append(key)
         
@@ -1118,7 +1124,7 @@ class DatasetCollection:
         ax.spines['top'].set_visible(False)
         return ax
     
-    def get_combined_dataset(self, properties=None, values=None, randomize=False):
+    def get_combined_dataset(self, properties=None, values=None, randomize=False, keep_properties=False):
         """
         Returns a combined dataset of the specified datasets.
         
@@ -1137,7 +1143,19 @@ class DatasetCollection:
             return None
         death_times = np.concatenate([self.datasets[key].death_times for key in keys])
         events = np.concatenate([self.datasets[key].events for key in keys])
-        return Dataset(death_times, events, bandwidth=self.datasets[keys[0]].bandwidth)
+        if keep_properties:
+            properties = []
+            for key in keys:
+                properties.extend(self.datasets[key].properties.keys())
+            properties = list(set(properties))
+            properties_dict = {prop: [] for prop in properties}
+            for key in keys:
+                for prop in properties:
+                    properties_dict[prop].append(self.datasets[key].properties[prop])
+            properties_dict = {prop: np.concatenate(values) for prop, values in properties_dict.items()}
+            return Dataset(death_times, events, bandwidth=self.datasets[keys[0]].bandwidth, properties=properties_dict)
+        else:
+            return Dataset(death_times, events, bandwidth=self.datasets[keys[0]].bandwidth)
     
     def get_combined_dataset_averaged(self, properties=None, values=None, randomize=False):
         """
@@ -1263,7 +1281,7 @@ class DatasetCollection:
             print(f'Removing dataset {key}')
         return DatasetCollection(datasets=new_datasets)
 
-    def drawConfidenceEllipse(self, n_samples=1000, n_per_sample='from distribution', data_percentile=95, sampled_percentile=98, title=None, show_property=None):
+    def drawConfidenceEllipse(self, n_samples=1000, n_per_sample='from distribution', data_percentile=95, sampled_percentile=98, title=None, show_property=None, ax=None):
         """
         Draws confidence ellipses for the median lifetime and steepness of datasets in a DatasetCollection.
         Parameters:
@@ -1273,6 +1291,7 @@ class DatasetCollection:
             sampled_percentile (int, optional): The percentile for the confidence ellipse for the sampled data. Default is 95.
             title (str, optional): The title of the plot. Default is None.
             show_property (str, optional): Property to color datasets by. Default is None.
+            ax (matplotlib.axes.Axes, optional): The axes to plot on. Default is None.
         Returns:
             ax: The axes object of the plot.
         """
@@ -1320,7 +1339,8 @@ class DatasetCollection:
             ax.add_patch(ellipse)
             return ellipse
 
-        fig, ax = plt.subplots()
+        if ax is None:
+            fig, ax = plt.subplots()
         colors = plt.cm.hsv(np.linspace(0, 1, len(np.unique(properties))))
         palette = {prop: colors[i] for i, prop in enumerate(np.unique(properties))}
         confidence_ellipse(medians, steepness, ax, percentile=data_percentile, edgecolor='red', label='confidence interval on data')
@@ -1513,6 +1533,7 @@ def dataCollectionFromExcel(
     sheet=None,
     excel_has_header=0,
     event_is_censored=False,
+    remove_nans=True,
     warnings=True,
 ):
     """
@@ -1585,7 +1606,8 @@ def dataCollectionFromExcel(
         datasets=datasets,
         properties=properties_final,
         additional_properties=additional_properties,
-        warnings=warnings
+        warnings=warnings,
+        remove_nans=remove_nans,
     )
 
 
