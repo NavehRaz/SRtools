@@ -1178,7 +1178,7 @@ def model(theta, n, nsteps, t_end, dataSet, sim=None, metric='baysian', time_ran
     # parse parameters
     durations = kwargs['durations']
     thetaSR = kwargs['thetaSR']
-    theta_indxes = kwargs['theta_indxes']
+    theta_indxes = kwargs['theta_indexes']
     thetaIntervention = [0.0] * 8
     for i, index in enumerate(theta_indxes):
         thetaIntervention[index] = theta[i]
