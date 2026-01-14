@@ -1178,9 +1178,9 @@ def model(theta, n, nsteps, t_end, dataSet, sim=None, metric='baysian', time_ran
     # parse parameters
     durations = kwargs['durations']
     thetaSR = kwargs['thetaSR']
-    theta_indxes = kwargs['theta_indexes']
+    theta_indexes = kwargs['theta_indexes']
     thetaIntervention = [0.0] * 8
-    for i, index in enumerate(theta_indxes):
+    for i, index in enumerate(theta_indexes):
         thetaIntervention[index] = theta[i]
     sim = getISR(thetaSR, n, nsteps, t_end, time_step_multiplier=time_step_multiplier, parallel=parallel, theta_intervention=thetaIntervention, durations=durations)
     tprob =  sr.distance(dataSet,sim,metric=metric,time_range=time_range, dt=dt)
