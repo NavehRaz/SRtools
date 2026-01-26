@@ -69,6 +69,8 @@ class Dataset:
             Adds a property to the dataset.
         splitByProperties(properties):
             Splits the dataset by properties and returns a dictionary of datasets.
+        stratifyByTiles(property, n_tiles=4):
+            Stratifies the dataset by splitting a numeric property into tiles (quartiles, tertiles, etc.).
         removeNans():
             Removes NaNs from the dataset.
         toCsv(file_name, properties=False):
@@ -891,6 +893,149 @@ class Dataset:
 
         return datasets
     
+    def stratifyByTiles(self, property, n_tiles=4):
+        """
+        This function stratifies the dataset by splitting a numeric property into tiles (quartiles, tertiles, etc.).
+        
+        Parameters:
+            property (str): The property to stratify by. Must be numeric or castable to float.
+            n_tiles (int): The number of tiles to split into (e.g., 4 for quartiles, 3 for tertiles). Default is 4.
+        
+        Returns:
+            datasets (list): A list of Dataset objects, one for each tile. Index 0 contains individuals with lowest property values.
+        """
+        if self.properties is None:
+            raise ValueError('Dataset has no properties.')
+        if property not in self.properties:
+            raise ValueError(f'Property {property} not found in the dataset.')
+        
+        if n_tiles < 2:
+            raise ValueError('n_tiles must be at least 2.')
+        
+        prop_values = self.properties[property]
+        
+        # Try to convert to numeric
+        try:
+            prop_values_numeric = np.array([float(v) for v in prop_values])
+        except (ValueError, TypeError):
+            raise ValueError(f'Property {property} cannot be converted to numeric values.')
+        
+        # Check for NaN values and remove them from consideration
+        nan_mask = ~np.isnan(prop_values_numeric)
+        if np.sum(nan_mask) == 0:
+            raise ValueError(f'Property {property} contains only NaN values.')
+        
+        # Get non-NaN values for quantile calculation
+        prop_values_clean = prop_values_numeric[nan_mask]
+        
+        # Use pandas qcut if available for more robust binning, otherwise use percentile approach
+        try:
+            # Use pd.qcut to assign each value to a tile
+            # This handles edge cases better (duplicate values, etc.)
+            tile_labels = pd.qcut(prop_values_clean, q=n_tiles, labels=False, duplicates='drop')
+            
+            # Handle NaN labels (shouldn't happen with duplicates='drop', but be safe)
+            valid_mask = ~np.isnan(tile_labels)
+            if np.sum(valid_mask) == 0:
+                raise ValueError('Unable to create tiles from property values.')
+            
+            # Get unique tile labels and remap to 0, 1, 2, ..., n_tiles-1
+            unique_tiles = np.unique(tile_labels[valid_mask])
+            n_actual_tiles = len(unique_tiles)
+            
+            # Create a mapping from original labels to consecutive 0, 1, 2, ...
+            tile_mapping = {old_label: new_label for new_label, old_label in enumerate(sorted(unique_tiles))}
+            
+            # Remap the labels
+            tile_labels_remapped = np.full(len(tile_labels), np.nan)
+            for i, label in enumerate(tile_labels):
+                if not np.isnan(label):
+                    tile_labels_remapped[i] = tile_mapping[label]
+            
+            # Create a full array with NaN for NaN values
+            tile_assignments = np.full(len(prop_values_numeric), np.nan)
+            tile_assignments[nan_mask] = tile_labels_remapped
+            
+            # Create datasets for each tile (use n_actual_tiles, not n_tiles)
+            datasets = []
+            for i in range(n_actual_tiles):
+                # Find indices where tile assignment equals i
+                mask = (tile_assignments == i) & nan_mask
+                
+                if np.sum(mask) == 0:
+                    # If no data in this tile, create an empty dataset
+                    death_times = np.array([])
+                    events = np.array([])
+                    properties = {prop: np.array([]) for prop in self.properties}
+                    datasets.append(Dataset(death_times, events, external_hazard=self.external_hazard, 
+                                           bandwidth=self.bandwidth, properties=properties, 
+                                           data_dt=self.data_dt, event_is_censored=self.event_is_censored))
+                    continue
+                
+                # Create subset
+                death_times = self.death_times[mask]
+                events = self.events[mask]
+                properties = {prop: self.properties[prop][mask] for prop in self.properties}
+                datasets.append(Dataset(death_times, events, external_hazard=self.external_hazard, 
+                                       bandwidth=self.bandwidth, properties=properties, 
+                                       data_dt=self.data_dt, event_is_censored=self.event_is_censored))
+            
+            return datasets
+            
+        except Exception:
+            # Fallback to percentile-based approach if pd.qcut fails
+            # Calculate quantile boundaries (percentiles)
+            quantiles = np.linspace(0, 100, n_tiles + 1)
+            boundaries = np.percentile(prop_values_clean, quantiles)
+            
+            # Ensure boundaries are unique and handle edge cases
+            # If all values are the same, all boundaries will be the same
+            if len(np.unique(boundaries)) == 1:
+                # All values are the same, return single dataset with all non-NaN values
+                mask = nan_mask
+                death_times = self.death_times[mask]
+                events = self.events[mask]
+                properties = {prop: self.properties[prop][mask] for prop in self.properties}
+                return [Dataset(death_times, events, external_hazard=self.external_hazard, 
+                               bandwidth=self.bandwidth, properties=properties, 
+                               data_dt=self.data_dt, event_is_censored=self.event_is_censored)]
+            
+            # Create datasets for each tile
+            datasets = []
+            for i in range(n_tiles):
+                # Define the range for this tile
+                if i == 0:
+                    # First tile: [boundary[0], boundary[1]]
+                    mask = (prop_values_numeric >= boundaries[i]) & (prop_values_numeric <= boundaries[i+1])
+                elif i == n_tiles - 1:
+                    # Last tile: (boundary[n_tiles-1], boundary[n_tiles]]
+                    mask = (prop_values_numeric > boundaries[i]) & (prop_values_numeric <= boundaries[i+1])
+                else:
+                    # Middle tiles: (boundary[i], boundary[i+1]]
+                    mask = (prop_values_numeric > boundaries[i]) & (prop_values_numeric <= boundaries[i+1])
+                
+                # Also exclude NaN values
+                mask = mask & nan_mask
+                
+                if np.sum(mask) == 0:
+                    # If no data in this tile, create an empty dataset
+                    death_times = np.array([])
+                    events = np.array([])
+                    properties = {prop: np.array([]) for prop in self.properties}
+                    datasets.append(Dataset(death_times, events, external_hazard=self.external_hazard, 
+                                           bandwidth=self.bandwidth, properties=properties, 
+                                           data_dt=self.data_dt, event_is_censored=self.event_is_censored))
+                    continue
+                
+                # Create subset
+                death_times = self.death_times[mask]
+                events = self.events[mask]
+                properties = {prop: self.properties[prop][mask] for prop in self.properties}
+                datasets.append(Dataset(death_times, events, external_hazard=self.external_hazard, 
+                                       bandwidth=self.bandwidth, properties=properties, 
+                                       data_dt=self.data_dt, event_is_censored=self.event_is_censored))
+            
+            return datasets
 
     def removeNans(self):
         """
@@ -1510,6 +1655,89 @@ def dsFromFile(path, external_hazard = np.inf, properties = None,sheet = None, d
 
     return Dataset(death_times, events, external_hazard = external_hazard, properties = properties, bandwidth=bandwidth, event_is_censored=event_is_censored)
     
+
+def mix_datasets(ds1, ds2, proportion=0.5):
+    """
+    Combine two datasets with a given proportion.
+    
+    Parameters:
+    -----------
+    ds1 : Dataset
+        First dataset.
+    ds2 : Dataset
+        Second dataset.
+    proportion : float, optional
+        Proportion of ds1 in the mixed dataset. Must be between 0 and 1. Default is 0.5.
+    
+    Returns:
+    --------
+    Dataset
+        Combined dataset with samples from both datasets according to the specified proportion.
+    
+    Notes:
+    -----
+    - The function randomly samples from each dataset without replacement.
+    - If the requested sample size exceeds the available data, all available data is used.
+    - Properties are preserved if both datasets have the same properties.
+    - The bandwidth and external_hazard are taken from ds1.
+    """
+    if not (0 <= proportion <= 1):
+        raise ValueError("proportion must be between 0 and 1")
+    
+    death_times1 = ds1.getDeathTimes()
+    death_times2 = ds2.getDeathTimes()
+    events1 = ds1.events
+    events2 = ds2.events
+    n1 = len(death_times1)
+    n2 = len(death_times2)
+    
+    # Calculate sample sizes, ensuring we don't exceed available data
+    n1_sample = int(n1 * proportion)
+    n2_sample = int(n2 * (1 - proportion))
+    
+    # Ensure we don't request more samples than available
+    n1_sample = min(n1_sample, n1)
+    n2_sample = min(n2_sample, n2)
+    
+    # Choose random indices from ds1 and ds2 according to the proportion
+    if n1_sample > 0:
+        indices1 = np.random.choice(range(n1), size=n1_sample, replace=False)
+    else:
+        indices1 = np.array([], dtype=int)
+    
+    if n2_sample > 0:
+        indices2 = np.random.choice(range(n2), size=n2_sample, replace=False)
+    else:
+        indices2 = np.array([], dtype=int)
+    
+    # Combine death times and events
+    death_times = np.concatenate([death_times1[indices1], death_times2[indices2]])
+    events = np.concatenate([events1[indices1], events2[indices2]])
+    
+    # Handle properties if they exist
+    properties = None
+    if ds1.properties is not None and ds2.properties is not None:
+        # Check if both datasets have the same properties
+        props1 = set(ds1.properties.keys())
+        props2 = set(ds2.properties.keys())
+        common_props = props1 & props2
+        
+        if common_props:
+            properties = {}
+            for prop in common_props:
+                prop1_vals = ds1.properties[prop][indices1] if len(indices1) > 0 else np.array([])
+                prop2_vals = ds2.properties[prop][indices2] if len(indices2) > 0 else np.array([])
+                properties[prop] = np.concatenate([prop1_vals, prop2_vals])
+    
+    # Use parameters from ds1 (or ds2 if ds1 doesn't have them)
+    bandwidth = ds1.bandwidth if hasattr(ds1, 'bandwidth') else ds2.bandwidth
+    external_hazard = ds1.external_hazard if hasattr(ds1, 'external_hazard') else ds2.external_hazard
+    event_is_censored = ds1.event_is_censored if hasattr(ds1, 'event_is_censored') else (ds2.event_is_censored if hasattr(ds2, 'event_is_censored') else False)
+    
+    return Dataset(death_times, events, external_hazard=external_hazard, 
+                   bandwidth=bandwidth, properties=properties, 
+                   event_is_censored=event_is_censored)
+
 
 def trim_to_range(t,vals,time_range,renormalize_survival = False):
     #trims the values to the time range

@@ -51,6 +51,7 @@ class SR(dtds.Dataset):
                 - 'euler': Standard Euler method
 
         """
+        self.properties = None
         if nsteps =='auto':
             nsteps =int(2*(t_end-t_start)/(kappa/beta))
         if eta != np.inf:

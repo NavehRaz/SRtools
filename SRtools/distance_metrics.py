@@ -74,7 +74,10 @@ def baysianDistance(sr1, sr2, time_range=None, dt =1, debug = False):
 
     events = sr1.events
     death_times = sr1.getDeathTimes()
-    dts =sr1.properties.get('dt',np.ones_like(death_times)*dt)
+    if sr1.properties is not None:
+        dts =sr1.properties.get('dt',np.ones_like(death_times)*dt)
+    else:
+        dts = np.ones_like(death_times)*dt
     if time_range is not None:
         events = events[(death_times >= time_range[0]) & (death_times <= time_range[1])]
         dts = dts[(death_times >= time_range[0]) & (death_times <= time_range[1])]
