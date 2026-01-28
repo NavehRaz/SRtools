@@ -126,6 +126,42 @@ PRESET_ALIASES = {
 }
 
 
+params_and_time_powers_dict ={
+    'xc/eta': 2,
+    'beta/eta': 1,
+    'xc^2/epsilon': 1,
+    'xc': 0,
+    'eta': -2,
+    'epsilon': -1,
+    'beta': -1,
+    'sqrt(xc/eta)': 1,
+    's= eta^0.5*xc^1.5/epsilon': 0,
+    'beta*xc/epsilon': 0,
+    'eta*xc/epsilon': -1,
+    'Fx=beta^2/eta*xc': 0,
+    'Dx =beta*epsilon/eta*xc^2': 0,
+    'Pk=beta*k/epsilon': 0,
+    'Fk=beta^2/eta*k': 0,
+    'Dk =beta*epsilon/eta*k^2': 0,
+    'Fk^2/Dk=beta^3/eta*epsilon': 0,
+    'epsilon/beta^2':1,
+    'k/beta':1,
+    'k^2/epsilon':1,
+    'best fit no ext hazard_MedianLifetime': 1,
+    'best fit no ext hazard_MaxLifetime': 1,
+    'best fit_MedianLifetime': 1,
+    'best fit_MaxLifetime': 1,
+    'data_MedianLifetime': 1,
+    'data_MaxLifetime': 1,
+    'ML_lnprob': 0,
+    'ExtH': 0,
+    'eta/xc': -2,
+    'beta/xc': -1,
+    'epsilon/xc^2': -1,
+    'k/xc': 0
+}
+
+
 def getTheta(preset_name="humans_M_combined",type = "mode_overall",time_unit='auto',ExtH =False, file=None):
     """
     This function is used to get the theta values for a given organism (preset_name).
@@ -310,6 +346,182 @@ def getTheta(preset_name="humans_M_combined",type = "mode_overall",time_unit='au
     else:
         return np.array([eta, beta, epsilon, xc])
     
+
+def getParams(
+    preset_name="humans_M_combined",
+    type="mode_overall",
+    time_unit="auto",
+    file=None,
+    params=["eta/xc", "beta/xc", "epsilon/xc^2", "xc"],
+):
+    """
+    Get arbitrary preset parameters (rows) with consistent time-unit conversion.
+
+    Parameters
+    ----------
+    preset_name : str
+        Preset column name (aliases supported via PRESET_ALIASES).
+    type : str
+        Which preset CSV to use: 'mode_overall', 'mode', or 'max_likelihood'.
+    time_unit : str
+        'auto', 'days', 'weeks', 'years', 'hours', or 'generations'.
+        Conversion assumes the preset table is in 'days', and converts via factor s:
+          - years: s=365
+          - weeks: s=7
+          - hours: s=1/24
+          - generations: s=3/24
+    ExtH : bool
+        If True and `params` is None, append 'ExtH' to the default parameter list.
+    file : str or None
+        Optional path to a preset CSV to load directly (skips preset_dir resolution).
+    params : list[str] or None
+        List of parameter names (must be keys in `params_and_time_powers_dict` and
+        present as rows in the preset CSV). Returned in the same order.
+        Default is ['eta/xc', 'beta/xc', 'epsilon/xc^2', 'xc'].
+
+    Returns
+    -------
+    list
+        List of parameter values, ordered to match `params`.
+
+    Notes
+    -----
+    Time-unit conversion uses `params_and_time_powers_dict[param] = p` and applies:
+        value_converted = value * s**(-p)
+    """
+
+    # If file is provided, use it directly; otherwise resolve from type.
+    if file is not None:
+        try:
+            df = pd.read_csv(file, index_col=0)
+        except FileNotFoundError:
+            raise FileNotFoundError(f"Could not find preset file: {file}")
+    else:
+        # Check if preset_name is an alias and convert to actual name
+        original_preset_name = preset_name
+        if preset_name in PRESET_ALIASES:
+            preset_name = PRESET_ALIASES[preset_name]
+            print(f"Using alias '{original_preset_name}' -> '{preset_name}'")
+
+        if type == "mode_overall":
+            csv_filename = "summery_mode_overall.csv"
+        elif type == "mode":
+            csv_filename = "summery_mode.csv"
+        elif type == "max_likelihood":
+            csv_filename = "summery_max_likelihood.csv"
+        else:
+            raise ValueError(
+                "Unknown type: {t}. Must be one of 'mode_overall', 'mode', or 'max_likelihood'".format(
+                    t=type
+                )
+            )
+
+        current_dir = os.path.dirname(os.path.abspath(__file__))
+        preset_dir = os.path.join(current_dir, "Preset_values")
+        csv_file = os.path.join(preset_dir, csv_filename)
+        try:
+            df = pd.read_csv(csv_file, index_col=0)
+        except FileNotFoundError:
+            raise FileNotFoundError(f"Could not find preset file: {csv_file}")
+
+    # Auto-detect time_unit when requested
+    if time_unit == "auto":
+        preset_name_lower = preset_name.lower()
+        if any(
+            keyword in preset_name_lower
+            for keyword in [
+                "human",
+                "sweden",
+                "denmark",
+                "dog",
+                "cat",
+                "labrador",
+                "staffy",
+                "german",
+                "jack",
+                "pig",
+                "guinea pigs",
+            ]
+        ):
+            time_unit = "years"
+        elif any(keyword in preset_name_lower for keyword in ["ecoli", "e. coli"]):
+            time_unit = "hours"
+        elif any(keyword in preset_name_lower for keyword in ["mice", "mouse"]):
+            time_unit = "weeks"
+        elif any(keyword in preset_name_lower for keyword in ["yeast"]):
+            time_unit = "generations"
+        else:
+            time_unit = "days"
+
+    # Set conversion factor based on time unit
+    if time_unit == "days":
+        s = 1.0
+    elif time_unit == "years":
+        s = 365.0
+    elif time_unit == "hours":
+        s = 1.0 / 24.0
+    elif time_unit == "generations":
+        s = 3.0 / 24.0
+    elif time_unit == "weeks":
+        s = 7.0
+    else:
+        raise ValueError(
+            f"Unknown time_unit: {time_unit}. Must be one of 'auto', 'days', 'weeks', 'years', 'hours', 'generations'"
+        )
+
+    # Validate preset column
+    if preset_name not in df.columns:
+        available_presets = list(df.columns)
+        raise ValueError(
+            f"Preset '{preset_name}' not found. Available presets: {available_presets}"
+        )
+
+    def _coerce_value(v):
+        # Normalize missing/empty values
+        if v == "" or v is None or (isinstance(v, float) and pd.isna(v)):
+            return None
+        if isinstance(v, str):
+            # Some tables store lists/tuples as strings; try to parse.
+            try:
+                v_parsed = ast.literal_eval(v)
+                v = v_parsed
+            except Exception:
+                # Fall back to float parsing if possible
+                try:
+                    return float(v)
+                except Exception:
+                    return v
+        return v
+
+    out = []
+    for par in params:
+        if par not in params_and_time_powers_dict:
+            raise KeyError(
+                f"Unknown parameter '{par}'. Must be a key in params_and_time_powers_dict."
+            )
+        try:
+            raw = df.loc[par, preset_name]
+        except KeyError as e:
+            raise KeyError(
+                f"Parameter {e} not found in the preset data (row '{par}', column '{preset_name}')."
+            )
+
+        val = _coerce_value(raw)
+        if val is None:
+            out.append(None)
+            continue
+
+        p = params_and_time_powers_dict[par]
+
+        # Apply conversion: multiply by s**(-p) (supports scalars + array-likes)
+        try:
+            out.append(np.asarray(val, dtype=float) * (s ** (-p)))
+        except Exception:
+            # Non-numeric values are returned as-is (no scaling)
+            out.append(val)
+
+    return out
+
 
 def get_preset_names(type = "mode_overall"):
     """
