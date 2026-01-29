@@ -17,3 +17,4 @@ corner>=2.2.0
 h5py>=3.7.0
 statsmodels>=0.13.0
 astropy>=5.0.0
+shap>=0.41.0
