@@ -377,6 +377,12 @@ class Dataset:
         This function returns the median lifetime of the  dataset.
         """
         return self.median_lifetime
+    
+    def getML(self):
+        """
+        Alias for getMedianLifetime.
+        """
+        return self.getMedianLifetime()
 
     def getSteepness(self, method ='IQR'):
         """
