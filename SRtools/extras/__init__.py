@@ -5,8 +5,6 @@ This subpackage contains extra utilities, experimental features, and
 additional classes that extend the core SRtools functionality.
 """
 
-__all__ = []
+from .SR_ddd import SR_DDD, getSrDDD
 
-# Import extra modules here as they are created
-# Example:
-# from .extra_module import ExtraClass
+__all__ = ['SR_DDD', 'getSrDDD']

@@ -1179,14 +1179,20 @@ def model(theta, n, nsteps, t_end, dataSet, sim=None, metric='baysian', time_ran
     durations = kwargs['durations']
     thetaSR = kwargs['thetaSR']
     theta_indexes = kwargs['theta_indexes']
-    thetaIntervention = [0.0] * 8
+    thetaIntervention = [0.0] * 10
     for i, index in enumerate(theta_indexes):
         thetaIntervention[index] = theta[i]
-    sim = getISR(thetaSR, n, nsteps, t_end, time_step_multiplier=time_step_multiplier, parallel=parallel, theta_intervention=thetaIntervention, durations=durations)
-    tprob =  sr.distance(dataSet,sim,metric=metric,time_range=time_range, dt=dt)
-    if np.isnan(tprob):
-        return -np.inf
-    return tprob
+    if not isinstance(dataSet, list):
+        dataSet = [dataSet]
+        durations = [durations]
+    tprobs = 0
+    for ds, duration in zip(dataSet, durations):
+        sim = getISR(thetaSR, n, nsteps, t_end, time_step_multiplier=time_step_multiplier, parallel=parallel, theta_intervention=thetaIntervention, durations=duration)
+        tprob = sr.distance(ds,sim,metric=metric,time_range=time_range, dt=dt)
+        if np.isnan(tprob):
+            return -np.inf
+        tprobs += tprob
+    return tprobs
 
 def plotIntervensions(int_list, int_list_sims=None, ref=None, ax=None, label=None, color=None, alpha=0.5):
     """
