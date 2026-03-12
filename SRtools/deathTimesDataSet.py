@@ -228,15 +228,16 @@ class Dataset:
         return bottom, top
         
     
-    def get_death_times_distribution(self, bins = None, dt=1, time_range = None):
+    def get_death_times_distribution(self, bins=None, dt=1, time_range=None, use_censored=False):
         """
         The probability of death in an interval is calculated as the number of deaths in the interval divided by the total number of individuals (npeople).
-        The last bin represents the probability of death after the last recorded death time.
+        The last bin represents the probability of death after the last recorded death time (unless use_censored=True, in which case censored individuals are properly handled and no final bin is added).
         Parameters:
         - bins (array-like, optional): The bins for the distribution. If bins is None, the death times distribution is binned by the time units of the simulation, 
-                           with bins = np.linspace(0, self.t_end, self.t_end + 1).
+                            with bins = np.linspace(0, self.t_end, self.t_end + 1).
         - time_range (tuple, optional): The time range for the distribution. If time_range is not None, the bins are between time_range[0] and time_range[1], 
-                        and death_times is only death_times within the time_range.
+                            and death_times is only death_times within the time_range.
+        - use_censored (bool, optional): If True, censored individuals are properly included in the risk set for each interval. Default is False.
         Returns:
         - prob_death (numpy.ndarray): The probability of death in each bin.
         - bin_edges (numpy.ndarray): The edges of the bins used for the distribution.
@@ -245,33 +246,71 @@ class Dataset:
             if time_range is not None:
                 bins = np.linspace(time_range[0], time_range[1], int(time_range[1] - time_range[0] + 1))
             else:
-                bins = np.linspace(0, self.t_end, int(self.t_end//dt + 1))
-        death_times = self.death_times.copy()
-        events = self.events
-        death_times = death_times[events == 1]
-        n =self.n
+                bins = np.linspace(0, self.t_end, int(self.t_end // dt + 1))
+
+        # Make working copies
+        death_times_raw = self.death_times.copy()
+        events = self.events.copy()
+        n = self.n
+
         if time_range is not None:
-            n_death = len(death_times) 
-            death_times = death_times[(death_times >= time_range[0]) & (death_times < time_range[1])]
+            mask_in_range = (death_times_raw >= time_range[0]) & (death_times_raw < time_range[1])
+            # For death times, filter those within the window
+            n_death = np.sum(events == 1)
+            death_times = death_times_raw[(events == 1) & mask_in_range]
+            # update n to account for removed deaths outside the range
             new_n = len(death_times)
-            d= n_death-new_n
-            n=n-d
-        
-        prob_death, bin_edges = np.histogram(death_times, bins=bins)
+            d = n_death - new_n
+            n = n - d
+            # For censored, only include those within the range
+            events_range = events[mask_in_range]
+            death_times_range = death_times_raw[mask_in_range]
+        else:
+            death_times = death_times_raw[events == 1]
+            death_times_range = death_times_raw
+            events_range = events
 
-        if time_range is  None:
-            #if the length of the death times < npeople then add -inf to the end of the death times to make death times the same length as npeople
-            if len(death_times)<n:
-                death_times = np.append(death_times,np.inf*np.ones(n-len(death_times)))
-            #append the probability of death after the last death time
-            prob_death = np.append(prob_death, n-np.sum(prob_death))
-            bin_edges = np.append(bin_edges, np.inf)
+        if not use_censored:
+            # original style (no censored adjustment)
+            prob_death, bin_edges = np.histogram(death_times, bins=bins)
+            # Add final bin for probability after last death, matching previous logic
+            if time_range is None:
+                if len(death_times) < n:
+                    death_times = np.append(death_times, np.inf * np.ones(n - len(death_times)))
+                prob_death = np.append(prob_death, n - np.sum(prob_death))
+                bin_edges = np.append(bin_edges, np.inf)
+            prob_death = prob_death / n
+            return prob_death, bin_edges
+        else:
+            # censored-aware version
+            # For each bin, need to count number of deaths and number at risk in that bin
+            bin_edges = np.asarray(bins)
+            prob_death = np.zeros(len(bin_edges) - 1)
+            # For each bin, compute:
+            #   - numerator: number of actual deaths in that bin
+            #   - denominator: number of individuals at risk at bin start
+            #   At risk: all with entry time <= left_edge and (not yet dead or censored after left_edge)
+            # For simple lifetables, entry is at 0 for everyone
+            entry_time = 0
+            for i in range(len(bin_edges) - 1):
+                left = bin_edges[i]
+                right = bin_edges[i+1]
+                # Number of deaths in bin = number of death events with death_time >= left and death_time < right
+                mask_death_in_bin = (death_times_raw >= left) & (death_times_raw < right) & (events==1)
+                n_deaths = np.sum(mask_death_in_bin)
+                # Number at risk at the start of the bin: all individuals not yet dead/censored before left
+                # At risk if:
+                #   - death_time >= left for censored individuals (events==0)
+                #   - death_time >= left for death events (they die at left or after)
+                at_risk = ((death_times_raw >= left)).astype(float)
+                n_at_risk = np.sum(at_risk)
+                # Only count bins with at least one at risk (avoid dividing by zero)
+                prob_death[i] = n_deaths / n_at_risk if n_at_risk > 0 else 0.0
+            return prob_death, bin_edges
 
-        prob_death = prob_death/n
-        
-        return prob_death, bin_edges
+
     
-    def plotDeathTimesDistribution(self, ax=None, bins=None, use_kde =False, dt=1, time_range=None, **kwargs):
+    def plotDeathTimesDistribution(self, ax=None, bins=None, use_kde =False, dt=1, time_range=None,use_censored=False, **kwargs):
         """
         This function plots the death times distribution.
         
@@ -297,7 +336,7 @@ class Dataset:
             kde = gaussian_kde(death_times, bw_method='scott')
             ax.plot(x, portion_died*kde(x), **kwargs)
         else:
-            prob_death, bin_edges = self.get_death_times_distribution(bins,dt=dt,time_range=time_range)
+            prob_death, bin_edges = self.get_death_times_distribution(bins,dt=dt,time_range=time_range,use_censored=use_censored)
             ax.step(bin_edges[:-1], prob_death, where='post', **kwargs)
         ax.set_xlabel('Death time (days)')
         ax.set_ylabel('Probability of death')

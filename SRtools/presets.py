@@ -161,8 +161,50 @@ params_and_time_powers_dict ={
     'k/xc': 0
 }
 
+FOLDER_ALIASES = {
+    'smurf': 'extras/Preset_values/smurfs',
+    'smurfs': 'extras/Preset_values/smurfs',
+}
 
-def getTheta(preset_name="humans_M_combined",type = "mode_overall",time_unit='auto',ExtH =False, file=None):
+
+def _resolve_preset_dir(folder=None):
+    """
+    Resolve the preset directory path.
+
+    Parameters
+    ----------
+    folder : str or None
+        - None  -> default ``Preset_values/`` next to this module.
+        - A key in ``FOLDER_ALIASES`` (e.g. ``'smurf'``) -> mapped path
+          relative to this module.
+        - Any other string -> treated as a path.  Absolute paths are used
+          as-is; relative paths are resolved relative to this module's
+          directory.
+
+    Returns
+    -------
+    str
+        Absolute path to the preset directory.
+    """
+    current_dir = os.path.dirname(os.path.abspath(__file__))
+
+    if folder is None:
+        return os.path.join(current_dir, "Preset_values")
+
+    if folder in FOLDER_ALIASES:
+        return os.path.join(current_dir, FOLDER_ALIASES[folder])
+
+    if os.path.isabs(folder):
+        return folder
+
+    return os.path.join(current_dir, folder)
+
+
+def getKarinTheta():
+    return [0.49275,54.75,51.83,17]
+
+    
+def getTheta(preset_name="humans_M_combined",type = "mode_overall",time_unit='auto',ExtH =False, file=None, folder=None):
     """
     This function is used to get the theta values for a given organism (preset_name).
     The preset can originate from different file types: 
@@ -180,6 +222,10 @@ def getTheta(preset_name="humans_M_combined",type = "mode_overall",time_unit='au
     Parameter scaling: eta->eta*s^2, beta->beta*s, epsilon->epsilon*s, xc->xc
     
     If file is provided, it will be used directly without checking aliases or current_dir.
+
+    folder : str or None
+        Preset directory. None -> default Preset_values/. 'smurf' -> extras/Preset_values/smurfs.
+        Can also be an absolute or relative path.
     """
     
     # If file is provided, use it directly
@@ -298,11 +344,7 @@ def getTheta(preset_name="humans_M_combined",type = "mode_overall",time_unit='au
     else:
         raise ValueError(f"Unknown type: {type}. Must be one of 'mode_overall', 'mode', or 'max_likelihood'")
     
-    # Get the directory where this module is located
-    current_dir = os.path.dirname(os.path.abspath(__file__))
-    # Construct the path to the Preset_values directory
-    preset_dir = os.path.join(current_dir, "Preset_values")
-    # Construct the full path to the CSV file
+    preset_dir = _resolve_preset_dir(folder)
     csv_file = os.path.join(preset_dir, csv_filename)
     
     # Load the CSV file
@@ -353,6 +395,7 @@ def getParams(
     time_unit="auto",
     file=None,
     params=["eta/xc", "beta/xc", "epsilon/xc^2", "xc"],
+    folder=None,
 ):
     """
     Get arbitrary preset parameters (rows) with consistent time-unit conversion.
@@ -378,6 +421,9 @@ def getParams(
         List of parameter names (must be keys in `params_and_time_powers_dict` and
         present as rows in the preset CSV). Returned in the same order.
         Default is ['eta/xc', 'beta/xc', 'epsilon/xc^2', 'xc'].
+    folder : str or None
+        Preset directory. None -> default Preset_values/. 'smurf' -> extras/Preset_values/smurfs.
+        Can also be an absolute or relative path.
 
     Returns
     -------
@@ -416,8 +462,7 @@ def getParams(
                 )
             )
 
-        current_dir = os.path.dirname(os.path.abspath(__file__))
-        preset_dir = os.path.join(current_dir, "Preset_values")
+        preset_dir = _resolve_preset_dir(folder)
         csv_file = os.path.join(preset_dir, csv_filename)
         try:
             df = pd.read_csv(csv_file, index_col=0)
@@ -523,9 +568,12 @@ def getParams(
     return out
 
 
-def get_preset_names(type = "mode_overall"):
+def get_preset_names(type = "mode_overall", folder=None):
     """
     This function is used to get the names of all presets.
+
+    folder : str or None
+        Preset directory. None -> default Preset_values/. 'smurf' -> extras/Preset_values/smurfs.
     """
     if type == "mode_overall":
         csv_filename = "summery_mode_overall.csv"
@@ -536,11 +584,7 @@ def get_preset_names(type = "mode_overall"):
     else:
         raise ValueError(f"Unknown type: {type}. Must be one of 'mode_overall', 'mode', or 'max_likelihood'")
 
-    # Get the directory where this module is located
-    current_dir = os.path.dirname(os.path.abspath(__file__))
-    # Construct the path to the Preset_values directory
-    preset_dir = os.path.join(current_dir, "Preset_values")
-    # Construct the full path to the CSV file
+    preset_dir = _resolve_preset_dir(folder)
     csv_file = os.path.join(preset_dir, csv_filename)
     
     # Load the CSV file
@@ -557,12 +601,16 @@ def get_config_params(
     config_params=['nsteps', 'time_step_multiplier', 'npeople', 't_end', 'time_range','hetro'],
     types=[int, int, int, int, list,bool],
     time_unit=None,
-    verbose=False
+    verbose=False,
+    folder=None,
     ):
     """
     This function is used to get the configuration parameters for a given preset. They are returned as a dictionary.
     Optionally, you can specify a target time_unit (e.g., 'years', 'days', 'hours', 'generations').
     If time_unit is given and differs from the detected original_time_unit, t_end and time_range will be converted accordingly.
+
+    folder : str or None
+        Preset directory. None -> default Preset_values/. 'smurf' -> extras/Preset_values/smurfs.
     """
     
     
@@ -617,11 +665,7 @@ def get_config_params(
 
     csv_filename = 'All_config.csv'
 
-    # Get the directory where this module is located
-    current_dir = os.path.dirname(os.path.abspath(__file__))
-    # Construct the path to the Preset_values directory
-    preset_dir = os.path.join(current_dir, "Preset_values")
-    # Construct the full path to the CSV file
+    preset_dir = _resolve_preset_dir(folder)
     csv_file = os.path.join(preset_dir, csv_filename)
 
     # Load the CSV file
@@ -678,15 +722,19 @@ def getSim(
     time_step_multiplier=None,
     method='brownian_bridge',
     parallel=False,
-    ExtH = True
+    ExtH = True,
+    folder=None,
 ):
     """
     Returns an srh.SR_Hetro object for the given preset, using the correct theta and configuration parameters.
     Optionally override theta, nsteps, npeople, t_end, or time_step_multiplier.
+
+    folder : str or None
+        Preset directory. None -> default Preset_values/. 'smurf' -> extras/Preset_values/smurfs.
     """
     # Get theta for the preset unless overridden
     if theta is None:
-        theta_val = getTheta(preset_name=preset_name, type=type, time_unit=time_unit, ExtH=ExtH)
+        theta_val = getTheta(preset_name=preset_name, type=type, time_unit=time_unit, ExtH=ExtH, folder=folder)
     else:
         theta_val = theta
 
@@ -695,7 +743,7 @@ def getSim(
         config_time_unit = None
     else:
         config_time_unit = time_unit
-    config = get_config_params(preset_name=preset_name, time_unit=config_time_unit, config_params=config_params)
+    config = get_config_params(preset_name=preset_name, time_unit=config_time_unit, config_params=config_params, folder=folder)
     
     if config['hetro'] is None:
         config['hetro'] = False

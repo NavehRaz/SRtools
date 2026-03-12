@@ -739,6 +739,78 @@ class SR_DDD(srh.SR_Hetro):
         ax.spines['top'].set_visible(False)
         return ax
 
+    def getDamageStats(self, stats=None, time_range=None, only_alive=True):
+        """
+        Get damage statistics over time.
+
+        Parameters:
+            stats (list of str): Statistics to compute.
+                Default: ['mean', 'std', 'cv'].
+                Options: 'mean', 'std', 'cv', 'median', 'min', 'max', 'skewness'.
+            time_range (tuple, optional): (start, end) time range
+            only_alive (bool): If True, only include individuals still alive at each time point
+
+        Returns:
+            dict: Dictionary with 'times' key and one key per requested stat,
+                  each mapping to a 1D array over the age axis (as given by x_res).
+        """
+        if self.damage_trajectories is None:
+            raise ValueError("Damage recording not enabled (x_res is None)")
+
+        if stats is None:
+            stats = ['mean', 'std', 'cv']
+
+        t = self.damage_times.copy()
+        trajectories = self.damage_trajectories.copy()
+
+        if time_range is not None:
+            mask = (t >= time_range[0]) & (t <= time_range[1])
+            t = t[mask]
+            trajectories = trajectories[:, mask]
+
+        if only_alive:
+            alive_mask = trajectories < self.xc
+            trajectories = np.where(alive_mask, trajectories, np.nan)
+
+        result = {'times': t}
+
+        mean = None
+        std = None
+        for stat in stats:
+            if stat == 'mean':
+                mean = np.nanmean(trajectories, axis=0)
+                result['mean'] = mean
+            elif stat == 'std':
+                std = np.nanstd(trajectories, axis=0)
+                result['std'] = std
+            elif stat == 'cv':
+                if mean is None:
+                    mean = np.nanmean(trajectories, axis=0)
+                if std is None:
+                    std = np.nanstd(trajectories, axis=0)
+                result['cv'] = np.where(mean > 0, std / mean, np.nan)
+            elif stat == 'median':
+                result['median'] = np.nanmedian(trajectories, axis=0)
+            elif stat == 'min':
+                result['min'] = np.nanmin(trajectories, axis=0)
+            elif stat == 'max':
+                result['max'] = np.nanmax(trajectories, axis=0)
+            elif stat == 'skewness':
+                if mean is None:
+                    mean = np.nanmean(trajectories, axis=0)
+                if std is None:
+                    std = np.nanstd(trajectories, axis=0)
+                n = np.sum(~np.isnan(trajectories), axis=0)
+                m3 = np.nanmean((trajectories - mean[np.newaxis, :]) ** 3, axis=0)
+                result['skewness'] = np.where(std > 0, m3 / std ** 3, np.nan)
+            else:
+                raise ValueError(
+                    f"Unknown stat: '{stat}'. "
+                    "Options: 'mean', 'std', 'cv', 'median', 'min', 'max', 'skewness'"
+                )
+
+        return result
+
     # ==================== Functional Capacity (F) Methods ====================
 
     def _validate_function_k(self, k):
@@ -1523,7 +1595,7 @@ def death_times_ddd_euler(s, dt, t, eta0, eta_var, beta0, beta_var, kappa0, kapp
         damage_trajectories = np.zeros((npeople, n_save_points))
     else:
         damage_trajectories = np.zeros((1, 1))
-    
+
     ndt = dt / time_step_multiplier
     nsdt = np.sqrt(ndt)
     constant_hazard = np.isfinite(external_hazard)
@@ -1531,7 +1603,7 @@ def death_times_ddd_euler(s, dt, t, eta0, eta_var, beta0, beta_var, kappa0, kapp
         chance_to_die_externally = np.exp(-external_hazard) * ndt
     else:
         chance_to_die_externally = 0.0
-    
+
     if x_res > 0:
         save_interval_steps = int(x_res / dt)
         if save_interval_steps < 1:
@@ -1544,7 +1616,7 @@ def death_times_ddd_euler(s, dt, t, eta0, eta_var, beta0, beta_var, kappa0, kapp
             avg_window_steps = 1
     else:
         avg_window_steps = 0
-    
+
     for person in range(npeople):
         x = 0.0
         j = 0
@@ -1557,11 +1629,12 @@ def death_times_ddd_euler(s, dt, t, eta0, eta_var, beta0, beta_var, kappa0, kapp
         crossed_death = False
         crossed_disease = False
         disease_time = 0.0
-        
+
         # Store individual threshold values
         individual_xc_values.append(xc)
         individual_xd_values.append(xd)
-        
+
+        # If using averaging over window
         if avg_window_steps > 0:
             window_size = avg_window_steps
             window = np.empty(window_size)
@@ -1574,15 +1647,16 @@ def death_times_ddd_euler(s, dt, t, eta0, eta_var, beta0, beta_var, kappa0, kapp
             window_size = 0
         save_idx = 0
         last_save_step = -save_interval_steps
-        
+
         while j < s - 1 and not crossed_death:
             for sub_step in range(time_step_multiplier):
                 current_time = t[j] + sub_step * ndt
                 noise = sqrt_2epsilon * np.random.normal()
                 x = x + ndt * (eta * current_time - beta * x / (x + kappa)) + noise * nsdt
                 x = max(x, 0.0)
-                
-                if window_size > 0:
+
+                if avg_window_steps > 0 and window_size > 0:
+                    # Rolling window averaging logic as before
                     if window_count < window_size:
                         window[window_index] = x
                         window_sum += x
@@ -1594,60 +1668,65 @@ def death_times_ddd_euler(s, dt, t, eta0, eta_var, beta0, beta_var, kappa0, kapp
                     window_index += 1
                     if window_index == window_size:
                         window_index = 0
-                
+
                 if constant_hazard and np.random.rand() < chance_to_die_externally:
                     x = xc
                     crossed_death = True
                     if not crossed_disease:
                         crossed_disease = True
                         disease_time = current_time
-                
+
                 if not crossed_disease and x >= xd:
                     crossed_disease = True
                     disease_time = current_time
-                
+
                 if x >= xc:
                     crossed_death = True
                     if not crossed_disease:
                         crossed_disease = True
                         disease_time = current_time
                     break
-            
+
             if n_save_points > 0 and save_idx < n_save_points:
                 if (save_interval_steps == 0 and j == 0) or (
                     save_interval_steps > 0
                     and (j - last_save_step >= save_interval_steps or j == 0)
                 ):
-                    if window_size > 0 and window_count > 0:
-                        damage_trajectories[person, save_idx] = window_sum / window_count
+                    if avg_window_steps > 0:
+                        # Average over window
+                        if window_count > 0:
+                            damage_trajectories[person, save_idx] = window_sum / window_count
+                        else:
+                            damage_trajectories[person, save_idx] = x
                     else:
+                        # No averaging: just sample current x
                         damage_trajectories[person, save_idx] = x
                     save_idx += 1
                     last_save_step = j
-            
+
             j += 1
-        
+
         # Fill remaining save points with final value (use xc if died)
         if n_save_points > 0:
             fill_value = xc if (crossed_death or x >= xc) else x
             while save_idx < n_save_points:
                 damage_trajectories[person, save_idx] = fill_value
                 save_idx += 1
-        
+
         death_times.append(j * dt)
         if crossed_death or x >= xc:
             events.append(1)
         else:
             events.append(0)
-        
+
         if crossed_disease:
             disease_onset_times.append(disease_time)
             disease_events.append(1)
         else:
             disease_onset_times.append(j * dt)
             disease_events.append(0)
-    
-    return (death_times, events, disease_onset_times, disease_events, 
+
+    return (death_times, events, disease_onset_times, disease_events,
             damage_trajectories, individual_xc_values, individual_xd_values)
 
 
