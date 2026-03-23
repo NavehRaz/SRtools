@@ -7,6 +7,17 @@ from lifelines import NelsonAalenFitter
 import seaborn as sns
 
 
+def _markevery_from_dt(times, dt):
+    """Return index list so that consecutive markers are >= *dt* apart."""
+    indices = [0]
+    last = times[0]
+    for i in range(1, len(times)):
+        if times[i] - last >= dt:
+            indices.append(i)
+            last = times[i]
+    return indices
+
+
 class Dataset:
     """
     This class contains the data for the deathTimes dataset and allows access to survival and hazard information.
@@ -164,21 +175,29 @@ class Dataset:
         self.hazard = naf.timeline, np.array(naf.smoothed_hazard_(bandwidth=self.bandwidth).values)[:,0]
         self.naf = naf
 
-    def plotSurvival(self, ax=None, time_range=None, **kwargs):
+    def plotSurvival(self, ax=None, time_range=None, mark_every_dt=None, **kwargs):
         """
         Plots the survival function.
         
         Parameters:
             ax (matplotlib.axes.Axes, optional): The axes to plot on. Default is None.
             time_range (tuple, optional): The time range for the plot. Default is None.
+            mark_every_dt (float or None): If not None, thin markers so that
+                consecutive markers are at least this many time-units apart.
             **kwargs: Additional keyword arguments for the plot.
         """
         if ax is None:
             fig, ax = plt.subplots()
         if time_range is not None:
-            t,s = self.getSurvival(time_range=time_range)
+            t, s = self.getSurvival(time_range=time_range)
+            if mark_every_dt is not None and len(t) > 1:
+                kwargs['markevery'] = _markevery_from_dt(t, mark_every_dt)
             ax.plot(t, s, **kwargs)
         else:
+            if mark_every_dt is not None:
+                t_km = self.kmf.timeline
+                if len(t_km) > 1:
+                    kwargs['markevery'] = _markevery_from_dt(t_km, mark_every_dt)
             self.kmf.plot_survival_function(ax=ax, **kwargs)
 
         ax.set_xlabel('Age')

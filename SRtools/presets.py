@@ -346,7 +346,7 @@ def getTheta(preset_name="humans_M_combined",type = "mode_overall",time_unit='au
     
     preset_dir = _resolve_preset_dir(folder)
     csv_file = os.path.join(preset_dir, csv_filename)
-    
+
     # Load the CSV file
     try:
         df = pd.read_csv(csv_file, index_col=0)
