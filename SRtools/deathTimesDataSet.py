@@ -175,7 +175,15 @@ class Dataset:
         self.hazard = naf.timeline, np.array(naf.smoothed_hazard_(bandwidth=self.bandwidth).values)[:,0]
         self.naf = naf
 
-    def plotSurvival(self, ax=None, time_range=None, mark_every_dt=None, **kwargs):
+    def plotSurvival(
+        self,
+        ax=None,
+        time_range=None,
+        mark_every_dt=None,
+        CI=True,
+        ci_percentile=0.95,
+        **kwargs,
+    ):
         """
         Plots the survival function.
         
@@ -184,21 +192,79 @@ class Dataset:
             time_range (tuple, optional): The time range for the plot. Default is None.
             mark_every_dt (float or None): If not None, thin markers so that
                 consecutive markers are at least this many time-units apart.
+            CI (bool): Whether to show Kaplan-Meier confidence intervals. Default is True.
+            ci_percentile (float): Confidence interval coverage probability (e.g. 0.95 for 95% CI).
             **kwargs: Additional keyword arguments for the plot.
         """
         if ax is None:
             fig, ax = plt.subplots()
+
+        # Normalize/validate CI settings (lifelines uses alpha=1-ci_percentile)
+        if ci_percentile is None:
+            ci_percentile = 0.95
+        ci_percentile = float(ci_percentile)
+        ci_percentile = round(ci_percentile, 4)
+        if not (0.0 < ci_percentile < 1.0):
+            raise ValueError("ci_percentile must be a float in (0, 1), e.g. 0.95 for 95% CI.")
+        alpha = 1.0 - ci_percentile
+        show_default_95_ci = abs(ci_percentile - 0.95) < 1e-9
+
+        # Avoid passing lifelines-specific kwarg through to matplotlib when time_range != None
+        kwargs.pop("ci_show", None)
+
         if time_range is not None:
             t, s = self.getSurvival(time_range=time_range)
             if mark_every_dt is not None and len(t) > 1:
                 kwargs['markevery'] = _markevery_from_dt(t, mark_every_dt)
-            ax.plot(t, s, **kwargs)
+
+            plot_kwargs = kwargs.copy()
+            plot_kwargs.pop("ci_show", None)
+            # matplotlib doesn't accept these lifelines-only keys
+            plot_kwargs.pop("ci_alpha", None)
+            plot_kwargs.pop("ci_force_lines", None)
+            plot_kwargs.pop("ci_legend", None)
+            ax.plot(t, s, **plot_kwargs)
+
+            if CI:
+                if show_default_95_ci:
+                    bottom, top = self.getSurvivalCI(time_range)
+                else:
+                    T = np.asarray(self.death_times, dtype=float)
+                    E = self.events
+                    temp_kmf = KaplanMeierFitter(alpha=alpha).fit(T, E)
+
+                    lower_key = f"KM_estimate_lower_{ci_percentile:g}"
+                    upper_key = f"KM_estimate_upper_{ci_percentile:g}"
+                    bottom_all = np.array(temp_kmf.confidence_interval_[lower_key].values)
+                    top_all = np.array(temp_kmf.confidence_interval_[upper_key].values)
+
+                    # Keep the slicing behavior consistent with getSurvival(..., time_range=...)
+                    t_all = np.asarray(self.kmf.timeline, dtype=float)
+                    _, bottom = trim_to_range(t_all, bottom_all, time_range, renormalize_survival=True)
+                    _, top = trim_to_range(t_all, top_all, time_range, renormalize_survival=True)
+
+                fill_alpha = kwargs.get("ci_alpha", 0.3)
+                color = plot_kwargs.get("color", None)
+                if color is not None:
+                    ax.fill_between(t, bottom, top, alpha=fill_alpha, color=color)
+                else:
+                    ax.fill_between(t, bottom, top, alpha=fill_alpha)
         else:
             if mark_every_dt is not None:
                 t_km = self.kmf.timeline
                 if len(t_km) > 1:
                     kwargs['markevery'] = _markevery_from_dt(t_km, mark_every_dt)
-            self.kmf.plot_survival_function(ax=ax, **kwargs)
+
+            # Lifelines handles CI display.
+            kwargs["ci_show"] = CI
+            if (not CI) or show_default_95_ci:
+                self.kmf.plot_survival_function(ax=ax, **kwargs)
+            else:
+                # Need a temporary fitter to match the requested CI width.
+                T = np.asarray(self.death_times, dtype=float)
+                E = self.events
+                temp_kmf = KaplanMeierFitter(alpha=alpha).fit(T, E)
+                temp_kmf.plot_survival_function(ax=ax, **kwargs)
 
         ax.set_xlabel('Age')
         ax.spines['right'].set_visible(False)
