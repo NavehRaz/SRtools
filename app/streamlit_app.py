@@ -1,14 +1,20 @@
 from __future__ import annotations
 
 import csv
+import sys
 from dataclasses import dataclass
 from io import BytesIO, StringIO
+from pathlib import Path
 from typing import Iterable
 
 import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
 
 from SRtools import Dataset, Life_table
 from SRtools import presets
