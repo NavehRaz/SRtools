@@ -31,10 +31,39 @@ cd SRtools
 pip install -e .
 ```
 
+### Install from PyPI
+
+The PyPI distribution name is `srtools-aging` because `srtools` is already used
+by an unrelated project. The Python import name remains `SRtools`:
+
+```bash
+pip install srtools-aging
+```
+
 Or install dependencies directly:
 
 ```bash
 pip install -r requirements.txt
+```
+
+### Web app
+
+The Streamlit web app lives in `app/` and is intentionally separate from the
+core package. Streamlit is not a dependency of `SRtools`.
+
+For a deployed/stable app environment:
+
+```bash
+pip install -r app/requirements.txt
+streamlit run app/streamlit_app.py
+```
+
+For local development against this checkout:
+
+```bash
+pip install -e .
+pip install streamlit plotly
+streamlit run app/streamlit_app.py
 ```
 
 ## Quick Start
@@ -215,7 +244,7 @@ If you use SRtools in your research, please cite the relevant papers on the SR m
 
 ## License
 
-[Add license information here]
+MIT. See `LICENSE`.
 
 ## Contributing
 
@@ -224,4 +253,3 @@ If you use SRtools in your research, please cite the relevant papers on the SR m
 ## Contact
 
 Naveh.Raz@weizmann.ac.il
-

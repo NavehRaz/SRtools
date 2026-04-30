@@ -1,0 +1,5 @@
+include README.md
+include RELEASE.md
+include LICENSE
+recursive-include SRtools/Preset_values *.csv
+recursive-include SRtools/extras *.md *.csv
