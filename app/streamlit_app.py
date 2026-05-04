@@ -92,6 +92,7 @@ class PlotObject:
     kind: str
     source: object
     time_unit: str
+    params: dict | None = None
 
 
 def _finite_float(value, default=np.inf):
@@ -185,6 +186,7 @@ def load_preset_defaults(preset_name: str, source: str, time_unit: str) -> dict:
     return {
         "eta": float(theta[0]),
         "beta": float(theta[1]),
+        "kappa": 0.5,
         "epsilon": float(theta[2]),
         "xc": float(theta[3]),
         "external_hazard_exponent": external_hazard_exponent,
@@ -355,6 +357,7 @@ def run_simulation(name: str, params: dict) -> PlotObject:
     theta = np.array([params["eta"], params["beta"], params["epsilon"], params["xc"]], dtype=float)
     sim = getSrHetro(
         theta,
+        kappa=params["kappa"],
         n=params["npeople"],
         nsteps=params["nsteps"],
         t_end=params["t_end"],
@@ -369,11 +372,51 @@ def run_simulation(name: str, params: dict) -> PlotObject:
         method=params["method"],
         parallel=False,
     )
-    return PlotObject(name=name, kind="simulation", source=sim, time_unit=params["time_unit"])
+    return PlotObject(name=name, kind="simulation", source=sim, time_unit=params["time_unit"], params=params.copy())
+
+
+def editable_params_from_simulation(sim: PlotObject) -> dict:
+    params = getattr(sim, "params", None)
+    if params:
+        return params.copy()
+
+    source = sim.source
+    external_hazard = _finite_float(getattr(source, "external_hazard", 30.0), default=30.0)
+    return {
+        "eta": float(getattr(source, "eta", 0.0)),
+        "beta": float(getattr(source, "beta", 1.0)),
+        "kappa": float(getattr(source, "kappa", 0.5)),
+        "epsilon": float(getattr(source, "epsilon", 0.0)),
+        "xc": float(getattr(source, "xc", 1.0)),
+        "external_hazard": external_hazard,
+        "external_hazard_exponent": external_hazard,
+        "time_unit": object_time_unit(sim),
+        "hetro": any(
+            float(getattr(source, attr, 0.0)) > 0
+            for attr in ("eta_var", "beta_var", "kappa_var", "epsilon_var", "xc_var")
+        ),
+        "eta_var": float(getattr(source, "eta_var", 0.0)),
+        "beta_var": float(getattr(source, "beta_var", 0.0)),
+        "kappa_var": float(getattr(source, "kappa_var", 0.0)),
+        "epsilon_var": float(getattr(source, "epsilon_var", 0.0)),
+        "xc_var": float(getattr(source, "xc_var", 0.0)),
+        "npeople": int(getattr(source, "npeople", 5000)),
+        "nsteps": int(getattr(source, "nsteps", 5000)),
+        "t_end": int(getattr(source, "t_end", 100)),
+        "time_step_multiplier": int(getattr(source, "time_step_multiplier", 1)),
+        "method": getattr(source, "method", "brownian_bridge"),
+    }
 
 
 st.set_page_config(page_title="SRtools Explorer", layout="wide")
 st.title("SRtools Explorer")
+st.markdown(
+    """
+    Simulate survival from organism presets, upload observed death-time or life-table data, and compare several simulations or datasets on the same survival, hazard, and death-time distribution plots.
+
+    The Saturating Removal model represents aging as accumulated damage. Damage production grows with time through `eta`, repair/removal is controlled by `beta` and saturates with `kappa`, stochastic variation is controlled by `epsilon`, and death occurs when damage crosses the threshold `xc` or through the optional external hazard. Heterogeneity terms let these parameters vary across individuals in a simulated cohort.
+    """
+)
 
 if "simulations" not in st.session_state:
     st.session_state["simulations"] = []
@@ -397,54 +440,100 @@ with st.sidebar:
     preset_name = selected_preset["preset_name"]
     preset_time_unit = selected_preset["time_unit"]
     defaults = load_preset_defaults(preset_name, selected_preset["source"], preset_time_unit)
+    edit_index = st.session_state.get("editing_sim_index")
+    editing_sim = None
+    if edit_index is not None and 0 <= edit_index < len(st.session_state["simulations"]):
+        editing_sim = st.session_state["simulations"][edit_index]
+    elif edit_index is not None:
+        st.session_state.pop("editing_sim_index", None)
+        st.session_state.pop("editing_sim_params", None)
+        st.session_state.pop("editing_sim_name", None)
+
+    if st.session_state["simulations"]:
+        edit_options = ["New simulation"] + [
+            f"{idx + 1}. {sim.name}" for idx, sim in enumerate(st.session_state["simulations"])
+        ]
+        selected_edit = st.selectbox("Edit previous simulation", edit_options)
+        e1, e2 = st.columns(2)
+        if e1.button("Load"):
+            if selected_edit == "New simulation":
+                st.session_state.pop("editing_sim_index", None)
+                st.session_state.pop("editing_sim_params", None)
+                st.session_state.pop("editing_sim_name", None)
+            else:
+                selected_index = edit_options.index(selected_edit) - 1
+                selected_sim = st.session_state["simulations"][selected_index]
+                st.session_state["editing_sim_index"] = selected_index
+                st.session_state["editing_sim_params"] = editable_params_from_simulation(selected_sim)
+                st.session_state["editing_sim_name"] = selected_sim.name
+            st.rerun()
+        if e2.button("Preset"):
+            st.session_state.pop("editing_sim_index", None)
+            st.session_state.pop("editing_sim_params", None)
+            st.session_state.pop("editing_sim_name", None)
+            st.rerun()
+
+    form_defaults = defaults.copy()
+    form_defaults.update(st.session_state.get("editing_sim_params", {}))
+    form_time_unit = normalize_time_unit(form_defaults.get("time_unit"), default=preset_time_unit)
+    form_name = st.session_state.get("editing_sim_name", selected_preset["alias"])
 
     with st.form("simulation_form"):
-        sim_name = st.text_input("Simulation name", value=selected_preset["alias"])
-        st.caption(f"Preset: {preset_name}; native time unit: {preset_time_unit}")
+        sim_name = st.text_input("Simulation name", value=form_name)
+        if editing_sim is not None:
+            st.caption(f"Editing: {editing_sim.name}; native time unit: {form_time_unit}")
+        else:
+            st.caption(f"Preset: {preset_name}; native time unit: {preset_time_unit}")
         c1, c2 = st.columns(2)
-        eta = c1.number_input("eta", min_value=0.0, value=defaults["eta"], format="%.8g")
-        beta = c2.number_input("beta", min_value=0.000001, value=defaults["beta"], format="%.8g")
-        epsilon = c1.number_input("epsilon", min_value=0.0, value=defaults["epsilon"], format="%.8g")
-        xc = c2.number_input("xc", min_value=0.000001, value=defaults["xc"], format="%.8g")
+        eta = c1.number_input("eta", min_value=0.0, value=float(form_defaults["eta"]), format="%.8g")
+        beta = c2.number_input("beta", min_value=0.000001, value=float(form_defaults["beta"]), format="%.8g")
+        kappa = c1.number_input("kappa", min_value=0.000001, value=float(form_defaults["kappa"]), format="%.8g")
+        epsilon = c2.number_input("epsilon", min_value=0.0, value=float(form_defaults["epsilon"]), format="%.8g")
+        xc = c1.number_input("xc", min_value=0.000001, value=float(form_defaults["xc"]), format="%.8g")
         external_hazard_exponent = st.number_input(
             "external hazard exponent x",
             min_value=0.0,
-            value=defaults["external_hazard_exponent"],
+            value=float(form_defaults["external_hazard_exponent"]),
             format="%.8g",
             help="The model uses an external hazard rate of exp(-x). Enter 0 for the maximum rate; larger values weaken it.",
         )
         st.caption(f"External hazard rate = exp(-x) = {display_external_hazard(external_hazard_exponent)}")
 
         st.divider()
-        hetro = st.checkbox("Enable heterogeneity", value=defaults["hetro"])
+        hetro = st.checkbox("Enable heterogeneity", value=bool(form_defaults["hetro"]))
         h1, h2 = st.columns(2)
-        eta_var = h1.number_input("eta_var", min_value=0.0, value=0.0, format="%.4g")
-        beta_var = h2.number_input("beta_var", min_value=0.0, value=0.0, format="%.4g")
-        epsilon_var = h1.number_input("epsilon_var", min_value=0.0, value=0.0, format="%.4g")
-        xc_var = h2.number_input("xc_var", min_value=0.0, value=0.2 if defaults["hetro"] else 0.0, format="%.4g")
-        kappa_var = h1.number_input("kappa_var", min_value=0.0, value=0.0, format="%.4g")
+        eta_var = h1.number_input("eta_var", min_value=0.0, value=float(form_defaults.get("eta_var", 0.0)), format="%.4g")
+        beta_var = h2.number_input("beta_var", min_value=0.0, value=float(form_defaults.get("beta_var", 0.0)), format="%.4g")
+        kappa_var = h1.number_input("kappa_var", min_value=0.0, value=float(form_defaults.get("kappa_var", 0.0)), format="%.4g")
+        epsilon_var = h2.number_input("epsilon_var", min_value=0.0, value=float(form_defaults.get("epsilon_var", 0.0)), format="%.4g")
+        xc_var = h1.number_input("xc_var", min_value=0.0, value=float(form_defaults.get("xc_var", 0.2 if form_defaults["hetro"] else 0.0)), format="%.4g")
 
         st.divider()
         r1, r2 = st.columns(2)
-        npeople = r1.number_input("sample size", min_value=100, max_value=25_000, value=min(defaults["npeople"], 5_000), step=100)
+        npeople = r1.number_input("sample size", min_value=100, max_value=25_000, value=min(int(form_defaults["npeople"]), 5_000), step=100)
         max_nsteps = max(100, MAX_SIMULATION_STEPS_TIMES_SAMPLE_SIZE // int(npeople))
         nsteps = r2.number_input(
             "steps",
             min_value=1,
             max_value=max_nsteps,
-            value=min(max(defaults["nsteps"], 1), max_nsteps),
+            value=min(max(int(form_defaults["nsteps"]), 1), max_nsteps),
             step=1,
         )
-        t_end = r1.number_input("end time", min_value=1, max_value=250, value=min(defaults["t_end"], 250), step=1)
+        t_end = r1.number_input("end time", min_value=1, max_value=250, value=min(int(form_defaults["t_end"]), 250), step=1)
         time_step_multiplier = r2.number_input(
             "step multiplier",
             min_value=1,
             max_value=MAX_TIME_STEP_MULTIPLIER,
-            value=min(defaults["time_step_multiplier"], MAX_TIME_STEP_MULTIPLIER),
+            value=min(int(form_defaults["time_step_multiplier"]), MAX_TIME_STEP_MULTIPLIER),
             step=1,
         )
-        method = st.selectbox("method", ["brownian_bridge", "euler"])
-        submitted = st.form_submit_button("Run simulation")
+        methods = ["brownian_bridge", "euler"]
+        default_method = form_defaults.get("method", "brownian_bridge")
+        if default_method not in methods:
+            default_method = "brownian_bridge"
+        method = st.selectbox("method", methods, index=methods.index(default_method))
+        replace_existing = st.checkbox("Replace loaded simulation", value=True, disabled=editing_sim is None)
+        submitted = st.form_submit_button("Run simulation" if editing_sim is None else "Run edited simulation")
 
     work_units = int(npeople) * int(nsteps)
     st.caption(
@@ -457,10 +546,12 @@ with st.sidebar:
             params = {
                 "eta": eta,
                 "beta": beta,
+                "kappa": kappa,
                 "epsilon": epsilon,
                 "xc": xc,
                 "external_hazard": external_hazard_exponent,
-                "time_unit": preset_time_unit,
+                "external_hazard_exponent": external_hazard_exponent,
+                "time_unit": form_time_unit,
                 "hetro": hetro,
                 "eta_var": eta_var,
                 "beta_var": beta_var,
@@ -474,8 +565,16 @@ with st.sidebar:
                 "method": method,
             }
             with st.spinner("Running simulation..."):
-                st.session_state["simulations"].append(run_simulation(sim_name, params))
-            st.success(f"Added {sim_name}")
+                result = run_simulation(sim_name, params)
+                if editing_sim is not None and replace_existing:
+                    st.session_state["simulations"][edit_index] = result
+                    st.session_state.pop("editing_sim_index", None)
+                    st.session_state.pop("editing_sim_params", None)
+                    st.session_state.pop("editing_sim_name", None)
+                    st.success(f"Updated {sim_name}")
+                else:
+                    st.session_state["simulations"].append(result)
+                    st.success(f"Added {sim_name}")
 
     if st.session_state["simulations"] and st.button("Clear simulations"):
         st.session_state["simulations"] = []
