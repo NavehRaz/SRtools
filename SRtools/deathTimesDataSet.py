@@ -294,6 +294,7 @@ class Dataset:
         bottom, top = self.getSurvivalCI(time_range)
         if CI:
             if 'color' in kwargs:
+
                 ax.fill_between(t/median_time, bottom, top, alpha=0.3, color=kwargs['color'])
             else:
                 ax.fill_between(t/median_time, bottom, top, alpha=0.3)

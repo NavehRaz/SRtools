@@ -263,12 +263,16 @@ def plotParams2D(data, param1, param2, divide_by_param1=None, multiply_param1=No
                 
                 # Extract plot properties, only including those that exist
                 # Valid matplotlib errorbar properties
+                # List of valid errorbar-specific keyword arguments for matplotlib
                 valid_errorbar_props = [
                     'color', 'marker', 'label', 'alpha', 'markersize', 
                     'markerfacecolor', 'markeredgewidth', 'markeredgecolor',
                     'linestyle', 'capsize', 'capthick', 'elinewidth', 'elinecolor',
-                    'capcolor', 'barsabove', 'lolims', 'uplims', 'xlolims', 'xuplims'
+                    'capcolor', 'barsabove', 'lolims', 'uplims', 'xlolims', 'xuplims',
+                    'errorevery', 'ecolor', 'elinewidth', 'capsize', 'capthick', # error bar size params
+                    'barsabove', 'zorder'
                 ]
+         
                 
                 errorbar_kwargs = {'linestyle': 'None'}
                 

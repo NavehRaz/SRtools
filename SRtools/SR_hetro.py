@@ -78,6 +78,7 @@ def getSrHetro(
     bandwidth=3,
     step_size=None,
     method='brownian_bridge'
+    kappa=0.5,
     ):
     """
     Optionally specify step_size. If step_size is given, nsteps and time_step_multiplier are ignored and recalculated so that
@@ -129,7 +130,7 @@ def getSrHetro(
         kappa_var=kappa_var,
         epsilon_var=epsilon_var,
         xc_var=xc_var,
-        kappa=0.5,
+        kappa=kappa,
         npeople=n,
         nsteps=nsteps,
         t_end=t_end,
