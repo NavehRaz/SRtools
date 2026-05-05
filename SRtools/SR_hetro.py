@@ -74,11 +74,11 @@ def getSrHetro(
     epsilon_var=0,
     xc_var=0.2,
     kappa_var=0,
+    kappa=0.5,
     hetro=True,
     bandwidth=3,
     step_size=None,
     method='brownian_bridge',
-    kappa=0.5,
     ):
     """
     Optionally specify step_size. If step_size is given, nsteps and time_step_multiplier are ignored and recalculated so that
@@ -369,6 +369,4 @@ def death_times_euler_brownian_bridge_parallel(s, dt, t, eta0, eta_var, beta0, b
     death_times = np.concatenate([res[0] for res in results])
     events = np.concatenate([res[1] for res in results])
     return death_times, events
-
-
 
