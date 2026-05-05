@@ -11,6 +11,7 @@ import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
+from plotly.colors import sample_colorscale
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
@@ -22,6 +23,8 @@ from SRtools.SR_hetro import getSrHetro
 
 
 MAX_SIMULATION_STEPS_TIMES_SAMPLE_SIZE = 35_000_000
+PREVIEW_SIMULATION_WORK_UNITS = 250_000
+PREVIEW_SIMULATION_MAX_SAMPLE_SIZE = 1_000
 MAX_TIME_STEP_MULTIPLIER = 20
 DEFAULT_BANDWIDTH = 3
 TIME_UNITS = ["hours", "days", "weeks", "years", "generations"]
@@ -31,6 +34,43 @@ TIME_UNIT_TO_DAYS = {
     "weeks": 7.0,
     "years": 365.0,
     "generations": 3.0 / 24.0,
+}
+CORE_PARAMETER_SPECS = {
+    "eta": {"label": "eta", "min": 1e-10, "max": 1e2},
+    "beta": {"label": "beta", "min": 1e-8, "max": 1e4},
+    "kappa": {"label": "kappa", "min": 1e-6, "max": 1e3},
+    "epsilon": {"label": "epsilon", "min": 1e-12, "max": 1e4},
+    "xc": {"label": "xc", "min": 1e-6, "max": 1e5},
+}
+SWEEP_PARAMETER_LABELS = {
+    "eta": "eta",
+    "beta": "beta",
+    "kappa": "kappa",
+    "epsilon": "epsilon",
+    "xc": "xc",
+    "external_hazard_exponent": "external hazard exponent",
+}
+STYLE_CONFIGS = {
+    "Friendly": {
+        "template": "plotly_white",
+        "line_width": 3.2,
+        "reference_width": 2,
+        "font_size": 15,
+        "title_size": 22,
+        "legend_title": "Series",
+        "colors": ["#0072B2", "#D55E00", "#009E73", "#CC79A7", "#56B4E9", "#E69F00", "#332288", "#88CCEE"],
+        "gridcolor": "rgba(120, 130, 145, 0.18)",
+    },
+    "Scientific": {
+        "template": "simple_white",
+        "line_width": 2,
+        "reference_width": 1.5,
+        "font_size": 12,
+        "title_size": 16,
+        "legend_title": "Dataset",
+        "colors": ["#1B1B1B", "#4E79A7", "#F28E2B", "#59A14F", "#B07AA1", "#9C755F", "#76B7B2", "#E15759"],
+        "gridcolor": "rgba(0, 0, 0, 0.12)",
+    },
 }
 
 PRESET_CATALOG_CSV = """source,preset_name,suggested_alias,shortlist,time_units
@@ -138,6 +178,10 @@ def display_external_hazard(exponent: float) -> str:
     return f"{np.exp(-exponent):.4g}"
 
 
+def clamp(value: float, min_value: float, max_value: float) -> float:
+    return min(max(float(value), min_value), max_value)
+
+
 def object_time_unit(obj: PlotObject) -> str:
     return normalize_time_unit(getattr(obj, "time_unit", "days"), default="days")
 
@@ -196,6 +240,69 @@ def load_preset_defaults(preset_name: str, source: str, time_unit: str) -> dict:
         "t_end": int(config["t_end"]),
         "hetro": default_heterogeneity(preset_name, bool(config.get("hetro", False))),
     }
+
+
+def params_from_defaults(defaults: dict, time_unit: str) -> dict:
+    return {
+        "eta": float(defaults["eta"]),
+        "beta": float(defaults["beta"]),
+        "kappa": float(defaults.get("kappa", 0.5)),
+        "epsilon": float(defaults["epsilon"]),
+        "xc": float(defaults["xc"]),
+        "external_hazard": float(defaults["external_hazard_exponent"]),
+        "external_hazard_exponent": float(defaults["external_hazard_exponent"]),
+        "time_unit": normalize_time_unit(time_unit),
+        "hetro": bool(defaults["hetro"]),
+        "eta_var": 0.0,
+        "beta_var": 0.0,
+        "kappa_var": 0.0,
+        "epsilon_var": 0.0,
+        "xc_var": 0.2 if defaults["hetro"] else 0.0,
+        "npeople": int(min(defaults["npeople"], 5_000)),
+        "nsteps": int(max(defaults["nsteps"], 1)),
+        "t_end": int(min(defaults["t_end"], 250)),
+        "time_step_multiplier": int(min(defaults["time_step_multiplier"], MAX_TIME_STEP_MULTIPLIER)),
+        "method": "brownian_bridge",
+    }
+
+
+def preview_params(params: dict) -> dict:
+    preview = params.copy()
+    preview["npeople"] = int(min(max(100, preview["npeople"]), PREVIEW_SIMULATION_MAX_SAMPLE_SIZE))
+    max_preview_steps = max(50, PREVIEW_SIMULATION_WORK_UNITS // preview["npeople"])
+    preview["nsteps"] = int(min(max(50, preview["nsteps"]), max_preview_steps))
+    preview["time_step_multiplier"] = int(min(max(1, preview["time_step_multiplier"]), MAX_TIME_STEP_MULTIPLIER))
+    return preview
+
+
+def params_cache_key(params: dict) -> tuple:
+    keys = [
+        "eta",
+        "beta",
+        "kappa",
+        "epsilon",
+        "xc",
+        "external_hazard",
+        "time_unit",
+        "hetro",
+        "eta_var",
+        "beta_var",
+        "kappa_var",
+        "epsilon_var",
+        "xc_var",
+        "npeople",
+        "nsteps",
+        "t_end",
+        "time_step_multiplier",
+        "method",
+    ]
+    frozen = []
+    for key in keys:
+        value = params[key]
+        if isinstance(value, float):
+            value = round(value, 12)
+        frozen.append((key, value))
+    return tuple(frozen)
 
 
 def read_uploaded_table(uploaded_file, sheet_name=None) -> pd.DataFrame:
@@ -322,12 +429,35 @@ def death_distribution_frame(obj: PlotObject, time_range: tuple[float, float], b
     )
 
 
-def plot_lines(frames: list[pd.DataFrame], title: str, y_title: str, x_title: str = "Time", log_y: bool = False) -> go.Figure:
+def apply_plot_style(fig: go.Figure, style: dict) -> go.Figure:
+    fig.update_layout(
+        template=style["template"],
+        font={"size": style["font_size"]},
+        title={"font": {"size": style["title_size"]}},
+        legend_title_text=style["legend_title"],
+        margin={"l": 30, "r": 20, "t": 60, "b": 45},
+    )
+    fig.update_xaxes(gridcolor=style["gridcolor"], zeroline=False)
+    fig.update_yaxes(gridcolor=style["gridcolor"], zeroline=False)
+    return fig
+
+
+def plot_lines(
+    frames: list[pd.DataFrame],
+    title: str,
+    y_title: str,
+    x_title: str = "Time",
+    log_y: bool = False,
+    style: dict | None = None,
+) -> go.Figure:
+    style = style or STYLE_CONFIGS["Friendly"]
     fig = go.Figure()
-    for frame in frames:
+    colors = style["colors"]
+    for index, frame in enumerate(frames):
         if frame.empty:
             continue
         label = frame["name"].iloc[0]
+        is_reference = frame["kind"].iloc[0] in {"data", "life table"}
         fig.add_trace(
             go.Scatter(
                 x=frame["time"],
@@ -335,18 +465,181 @@ def plot_lines(frames: list[pd.DataFrame], title: str, y_title: str, x_title: st
                 mode="lines",
                 line_shape="hv" if frame["plot"].iloc[0] == "death_distribution" else "linear",
                 name=label,
+                line={
+                    "color": "rgba(95, 99, 104, 0.75)" if is_reference else colors[index % len(colors)],
+                    "width": style["reference_width"] if is_reference else style["line_width"],
+                    "dash": "dot" if frame["kind"].iloc[0] == "preview" else None,
+                },
             )
         )
     fig.update_layout(
         title=title,
         xaxis_title=x_title,
         yaxis_title=y_title,
-        template="plotly_white",
-        legend_title_text="Series",
     )
     if log_y:
         fig.update_yaxes(type="log")
-    return fig
+    return apply_plot_style(fig, style)
+
+
+def frame_for_plot(
+    obj: PlotObject,
+    plot_kind: str,
+    time_range: tuple[float, float],
+    plot_unit: str,
+    bin_width: float,
+    renormalize: bool = False,
+    scale_by_median: bool = False,
+) -> pd.DataFrame:
+    if plot_kind == "Survival":
+        return survival_frame(obj, time_range, plot_unit, renormalize=renormalize, scale_by_median=scale_by_median)
+    if plot_kind == "Hazard":
+        return hazard_frame(obj, time_range, plot_unit)
+    return death_distribution_frame(obj, time_range, bin_width, plot_unit)
+
+
+def plot_sweep_overlay(
+    frames: list[pd.DataFrame],
+    reference_frames: list[pd.DataFrame],
+    parameter_label: str,
+    title: str,
+    y_title: str,
+    x_title: str,
+    log_y: bool,
+    style: dict,
+) -> go.Figure:
+    fig = go.Figure()
+    colors = sample_colorscale("Viridis", np.linspace(0.08, 0.92, max(len(frames), 1)))
+    for index, frame in enumerate(frames):
+        if frame.empty:
+            continue
+        sweep_value = frame["sweep_value"].iloc[0]
+        fig.add_trace(
+            go.Scatter(
+                x=frame["time"],
+                y=frame["value"],
+                mode="lines",
+                line_shape="hv" if frame["plot"].iloc[0] == "death_distribution" else "linear",
+                name=f"{parameter_label}={sweep_value:.3g}",
+                line={"color": colors[index], "width": style["line_width"]},
+            )
+        )
+    for frame in reference_frames:
+        if frame.empty:
+            continue
+        fig.add_trace(
+            go.Scatter(
+                x=frame["time"],
+                y=frame["value"],
+                mode="lines",
+                line_shape="hv" if frame["plot"].iloc[0] == "death_distribution" else "linear",
+                name=frame["name"].iloc[0],
+                line={"color": "rgba(95, 99, 104, 0.7)", "width": style["reference_width"], "dash": "dot"},
+            )
+        )
+    fig.update_layout(title=title, xaxis_title=x_title, yaxis_title=y_title)
+    if log_y:
+        fig.update_yaxes(type="log")
+    return apply_plot_style(fig, style)
+
+
+def plot_sweep_animation(
+    frames: list[pd.DataFrame],
+    reference_frames: list[pd.DataFrame],
+    parameter_label: str,
+    title: str,
+    y_title: str,
+    x_title: str,
+    log_y: bool,
+    style: dict,
+) -> go.Figure:
+    fig = go.Figure()
+    if not frames:
+        return fig
+
+    initial = frames[0]
+    fig.add_trace(
+        go.Scatter(
+            x=initial["time"],
+            y=initial["value"],
+            mode="lines",
+            line_shape="hv" if initial["plot"].iloc[0] == "death_distribution" else "linear",
+            name=f"{parameter_label}={initial['sweep_value'].iloc[0]:.3g}",
+            line={"color": style["colors"][0], "width": style["line_width"]},
+        )
+    )
+    for frame in reference_frames:
+        if frame.empty:
+            continue
+        fig.add_trace(
+            go.Scatter(
+                x=frame["time"],
+                y=frame["value"],
+                mode="lines",
+                line_shape="hv" if frame["plot"].iloc[0] == "death_distribution" else "linear",
+                name=frame["name"].iloc[0],
+                line={"color": "rgba(95, 99, 104, 0.7)", "width": style["reference_width"], "dash": "dot"},
+            )
+        )
+
+    animation_frames = []
+    for frame in frames:
+        sweep_value = frame["sweep_value"].iloc[0]
+        animation_frames.append(
+            go.Frame(
+                name=f"{sweep_value:.6g}",
+                data=[
+                    go.Scatter(
+                        x=frame["time"],
+                        y=frame["value"],
+                        mode="lines",
+                        line_shape="hv" if frame["plot"].iloc[0] == "death_distribution" else "linear",
+                        name=f"{parameter_label}={sweep_value:.3g}",
+                        line={"color": style["colors"][0], "width": style["line_width"]},
+                    )
+                ],
+            )
+        )
+    fig.frames = animation_frames
+    fig.update_layout(
+        title=title,
+        xaxis_title=x_title,
+        yaxis_title=y_title,
+        updatemenus=[
+            {
+                "type": "buttons",
+                "showactive": False,
+                "buttons": [
+                    {
+                        "label": "Play",
+                        "method": "animate",
+                        "args": [None, {"frame": {"duration": 450, "redraw": True}, "fromcurrent": True}],
+                    },
+                    {
+                        "label": "Pause",
+                        "method": "animate",
+                        "args": [[None], {"frame": {"duration": 0, "redraw": False}, "mode": "immediate"}],
+                    },
+                ],
+            }
+        ],
+        sliders=[
+            {
+                "currentvalue": {"prefix": f"{parameter_label}="},
+                "steps": [
+                    {
+                        "label": frame.name,
+                        "method": "animate",
+                        "args": [[frame.name], {"mode": "immediate", "frame": {"duration": 0, "redraw": True}}],
+                    }
+                    for frame in animation_frames
+                ],
+            }
+        ],
+    )
+    if log_y:
+        fig.update_yaxes(type="log")
+    return apply_plot_style(fig, style)
 
 
 def all_objects(uploaded_objects: list[PlotObject]) -> list[PlotObject]:
@@ -373,6 +666,12 @@ def run_simulation(name: str, params: dict) -> PlotObject:
         parallel=False,
     )
     return PlotObject(name=name, kind="simulation", source=sim, time_unit=params["time_unit"], params=params.copy())
+
+
+@st.cache_data(show_spinner=False)
+def run_cached_preview(name: str, frozen_params: tuple) -> PlotObject:
+    params = dict(frozen_params)
+    return run_simulation(name, params)
 
 
 def editable_params_from_simulation(sim: PlotObject) -> dict:
@@ -408,6 +707,97 @@ def editable_params_from_simulation(sim: PlotObject) -> dict:
     }
 
 
+def set_draft_state(params: dict, name: str | None = None, selected_index: int | None = None) -> None:
+    params = params.copy()
+    params["external_hazard"] = float(params.get("external_hazard_exponent", params.get("external_hazard", 30.0)))
+    params["external_hazard_exponent"] = float(params["external_hazard"])
+    st.session_state["draft_params"] = params
+    st.session_state["selected_sim_index"] = selected_index
+    if name is not None:
+        st.session_state["draft_name"] = name
+        st.session_state["draft_name_input"] = name
+    for key, spec in CORE_PARAMETER_SPECS.items():
+        value = clamp(params[key], spec["min"], spec["max"])
+        st.session_state[f"{key}_exact"] = value
+        st.session_state[f"{key}_log"] = float(np.log10(value))
+    st.session_state["external_hazard_exact"] = float(params["external_hazard_exponent"])
+    st.session_state["external_hazard_slider"] = float(params["external_hazard_exponent"])
+    for key in ["hetro", "eta_var", "beta_var", "kappa_var", "epsilon_var", "xc_var", "npeople", "nsteps", "t_end", "time_step_multiplier", "method"]:
+        st.session_state[f"draft_{key}"] = params[key]
+
+
+def queue_draft_state(params: dict, name: str | None = None, selected_index: int | None = None) -> None:
+    st.session_state["pending_draft_state"] = (params.copy(), name, selected_index)
+
+
+def sync_exact_from_log(parameter: str) -> None:
+    spec = CORE_PARAMETER_SPECS[parameter]
+    st.session_state[f"{parameter}_exact"] = float(10 ** st.session_state[f"{parameter}_log"])
+    st.session_state[f"{parameter}_exact"] = clamp(st.session_state[f"{parameter}_exact"], spec["min"], spec["max"])
+
+
+def sync_log_from_exact(parameter: str) -> None:
+    spec = CORE_PARAMETER_SPECS[parameter]
+    value = clamp(st.session_state[f"{parameter}_exact"], spec["min"], spec["max"])
+    st.session_state[f"{parameter}_exact"] = value
+    st.session_state[f"{parameter}_log"] = float(np.log10(value))
+
+
+def sync_external_exact_from_slider() -> None:
+    st.session_state["external_hazard_exact"] = float(st.session_state["external_hazard_slider"])
+
+
+def sync_external_slider_from_exact() -> None:
+    value = clamp(st.session_state["external_hazard_exact"], 0.0, 60.0)
+    st.session_state["external_hazard_exact"] = value
+    st.session_state["external_hazard_slider"] = value
+
+
+def render_log_parameter_control(parameter: str) -> float:
+    spec = CORE_PARAMETER_SPECS[parameter]
+    left, right = st.columns([0.62, 0.38])
+    left.slider(
+        spec["label"],
+        min_value=float(np.log10(spec["min"])),
+        max_value=float(np.log10(spec["max"])),
+        step=0.01,
+        key=f"{parameter}_log",
+        format="10^%.2f",
+        on_change=sync_exact_from_log,
+        args=(parameter,),
+    )
+    right.number_input(
+        f"{spec['label']} exact",
+        min_value=spec["min"],
+        max_value=spec["max"],
+        format="%.8g",
+        key=f"{parameter}_exact",
+        on_change=sync_log_from_exact,
+        args=(parameter,),
+    )
+    return float(st.session_state[f"{parameter}_exact"])
+
+
+def draft_params_from_controls() -> dict:
+    params = st.session_state["draft_params"].copy()
+    for key in CORE_PARAMETER_SPECS:
+        params[key] = float(st.session_state[f"{key}_exact"])
+    params["external_hazard"] = float(st.session_state["external_hazard_exact"])
+    params["external_hazard_exponent"] = float(st.session_state["external_hazard_exact"])
+    params["hetro"] = bool(st.session_state["draft_hetro"])
+    for key in ["eta_var", "beta_var", "kappa_var", "epsilon_var", "xc_var"]:
+        params[key] = float(st.session_state[f"draft_{key}"])
+    params["npeople"] = int(st.session_state["draft_npeople"])
+    params["nsteps"] = int(st.session_state["draft_nsteps"])
+    params["t_end"] = int(st.session_state["draft_t_end"])
+    params["time_step_multiplier"] = int(st.session_state["draft_time_step_multiplier"])
+    params["method"] = st.session_state["draft_method"]
+    params["time_unit"] = normalize_time_unit(params.get("time_unit"), default="days")
+    st.session_state["draft_params"] = params
+    st.session_state["draft_name"] = st.session_state["draft_name_input"]
+    return params
+
+
 st.set_page_config(page_title="SRtools Explorer", layout="wide")
 st.title("SRtools Explorer")
 st.markdown(
@@ -418,6 +808,20 @@ st.markdown(
     """
 )
 
+st.markdown(
+    """
+    <style>
+    div[data-testid="stButton"] > button {
+        border-radius: 8px;
+        min-height: 2.6rem;
+        white-space: normal;
+        text-align: left;
+    }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
+
 if "simulations" not in st.session_state:
     st.session_state["simulations"] = []
 
@@ -425,7 +829,11 @@ preset_catalog = load_preset_catalog()
 preset_by_id = {preset["id"]: preset for preset in preset_catalog}
 
 with st.sidebar:
-    st.header("Simulation")
+    st.header("Controls")
+    visualization_style = st.radio("Visualization style", ["Friendly", "Scientific"], horizontal=True)
+    style_config = STYLE_CONFIGS[visualization_style]
+
+    st.subheader("Preset")
     use_shortlist = st.checkbox("Shortlist", value=True)
     visible_presets = [preset for preset in preset_catalog if preset["shortlist"] or not use_shortlist]
     preset_id = st.selectbox(
@@ -437,147 +845,125 @@ with st.sidebar:
         else f"{preset_by_id[value]['alias']} ({preset_by_id[value]['source']})",
     )
     selected_preset = preset_by_id[preset_id]
-    preset_name = selected_preset["preset_name"]
-    preset_time_unit = selected_preset["time_unit"]
-    defaults = load_preset_defaults(preset_name, selected_preset["source"], preset_time_unit)
-    edit_index = st.session_state.get("editing_sim_index")
-    editing_sim = None
-    if edit_index is not None and 0 <= edit_index < len(st.session_state["simulations"]):
-        editing_sim = st.session_state["simulations"][edit_index]
-    elif edit_index is not None:
-        st.session_state.pop("editing_sim_index", None)
-        st.session_state.pop("editing_sim_params", None)
-        st.session_state.pop("editing_sim_name", None)
+    defaults = load_preset_defaults(selected_preset["preset_name"], selected_preset["source"], selected_preset["time_unit"])
+    preset_draft = params_from_defaults(defaults, selected_preset["time_unit"])
 
-    if st.session_state["simulations"]:
-        edit_options = ["New simulation"] + [
-            f"{idx + 1}. {sim.name}" for idx, sim in enumerate(st.session_state["simulations"])
-        ]
-        selected_edit = st.selectbox("Edit previous simulation", edit_options)
-        e1, e2 = st.columns(2)
-        if e1.button("Load"):
-            if selected_edit == "New simulation":
-                st.session_state.pop("editing_sim_index", None)
-                st.session_state.pop("editing_sim_params", None)
-                st.session_state.pop("editing_sim_name", None)
-            else:
-                selected_index = edit_options.index(selected_edit) - 1
-                selected_sim = st.session_state["simulations"][selected_index]
-                st.session_state["editing_sim_index"] = selected_index
-                st.session_state["editing_sim_params"] = editable_params_from_simulation(selected_sim)
-                st.session_state["editing_sim_name"] = selected_sim.name
-            st.rerun()
-        if e2.button("Preset"):
-            st.session_state.pop("editing_sim_index", None)
-            st.session_state.pop("editing_sim_params", None)
-            st.session_state.pop("editing_sim_name", None)
-            st.rerun()
+    pending_draft_state = st.session_state.pop("pending_draft_state", None)
+    if pending_draft_state is not None:
+        set_draft_state(*pending_draft_state)
+    elif "draft_params" not in st.session_state:
+        set_draft_state(preset_draft, selected_preset["alias"], None)
 
-    form_defaults = defaults.copy()
-    form_defaults.update(st.session_state.get("editing_sim_params", {}))
-    form_time_unit = normalize_time_unit(form_defaults.get("time_unit"), default=preset_time_unit)
-    form_name = st.session_state.get("editing_sim_name", selected_preset["alias"])
+    if st.button("Load preset values"):
+        set_draft_state(preset_draft, selected_preset["alias"], None)
+        st.rerun()
 
-    with st.form("simulation_form"):
-        sim_name = st.text_input("Simulation name", value=form_name)
-        if editing_sim is not None:
-            st.caption(f"Editing: {editing_sim.name}; native time unit: {form_time_unit}")
-        else:
-            st.caption(f"Preset: {preset_name}; native time unit: {preset_time_unit}")
-        c1, c2 = st.columns(2)
-        eta = c1.number_input("eta", min_value=0.0, value=float(form_defaults["eta"]), format="%.8g")
-        beta = c2.number_input("beta", min_value=0.000001, value=float(form_defaults["beta"]), format="%.8g")
-        kappa = c1.number_input("kappa", min_value=0.000001, value=float(form_defaults["kappa"]), format="%.8g")
-        epsilon = c2.number_input("epsilon", min_value=0.0, value=float(form_defaults["epsilon"]), format="%.8g")
-        xc = c1.number_input("xc", min_value=0.000001, value=float(form_defaults["xc"]), format="%.8g")
-        external_hazard_exponent = st.number_input(
-            "external hazard exponent x",
-            min_value=0.0,
-            value=float(form_defaults["external_hazard_exponent"]),
-            format="%.8g",
-            help="The model uses an external hazard rate of exp(-x). Enter 0 for the maximum rate; larger values weaken it.",
-        )
-        st.caption(f"External hazard rate = exp(-x) = {display_external_hazard(external_hazard_exponent)}")
-
-        st.divider()
-        hetro = st.checkbox("Enable heterogeneity", value=bool(form_defaults["hetro"]))
-        h1, h2 = st.columns(2)
-        eta_var = h1.number_input("eta_var", min_value=0.0, value=float(form_defaults.get("eta_var", 0.0)), format="%.4g")
-        beta_var = h2.number_input("beta_var", min_value=0.0, value=float(form_defaults.get("beta_var", 0.0)), format="%.4g")
-        kappa_var = h1.number_input("kappa_var", min_value=0.0, value=float(form_defaults.get("kappa_var", 0.0)), format="%.4g")
-        epsilon_var = h2.number_input("epsilon_var", min_value=0.0, value=float(form_defaults.get("epsilon_var", 0.0)), format="%.4g")
-        xc_var = h1.number_input("xc_var", min_value=0.0, value=float(form_defaults.get("xc_var", 0.2 if form_defaults["hetro"] else 0.0)), format="%.4g")
-
-        st.divider()
-        r1, r2 = st.columns(2)
-        npeople = r1.number_input("sample size", min_value=100, max_value=25_000, value=min(int(form_defaults["npeople"]), 5_000), step=100)
-        max_nsteps = max(100, MAX_SIMULATION_STEPS_TIMES_SAMPLE_SIZE // int(npeople))
-        nsteps = r2.number_input(
-            "steps",
-            min_value=1,
-            max_value=max_nsteps,
-            value=min(max(int(form_defaults["nsteps"]), 1), max_nsteps),
-            step=1,
-        )
-        t_end = r1.number_input("end time", min_value=1, max_value=250, value=min(int(form_defaults["t_end"]), 250), step=1)
-        time_step_multiplier = r2.number_input(
-            "step multiplier",
-            min_value=1,
-            max_value=MAX_TIME_STEP_MULTIPLIER,
-            value=min(int(form_defaults["time_step_multiplier"]), MAX_TIME_STEP_MULTIPLIER),
-            step=1,
-        )
-        methods = ["brownian_bridge", "euler"]
-        default_method = form_defaults.get("method", "brownian_bridge")
-        if default_method not in methods:
-            default_method = "brownian_bridge"
-        method = st.selectbox("method", methods, index=methods.index(default_method))
-        replace_existing = st.checkbox("Replace loaded simulation", value=True, disabled=editing_sim is None)
-        submitted = st.form_submit_button("Run simulation" if editing_sim is None else "Run edited simulation")
-
-    work_units = int(npeople) * int(nsteps)
-    st.caption(
-        f"Simulation steps x sample size: {work_units:,} / {MAX_SIMULATION_STEPS_TIMES_SAMPLE_SIZE:,}"
+    st.divider()
+    st.subheader("Draft simulation")
+    selected_sim_index = st.session_state.get("selected_sim_index")
+    selected_sim = (
+        st.session_state["simulations"][selected_sim_index]
+        if selected_sim_index is not None and 0 <= selected_sim_index < len(st.session_state["simulations"])
+        else None
     )
-    if submitted:
+    if selected_sim is not None:
+        st.caption(f"Editing saved simulation: {selected_sim.name}")
+    else:
+        st.caption(f"Preset: {selected_preset['preset_name']}; native time unit: {st.session_state['draft_params']['time_unit']}")
+
+    st.text_input("Simulation name", key="draft_name_input")
+    for parameter in CORE_PARAMETER_SPECS:
+        render_log_parameter_control(parameter)
+
+    eh_left, eh_right = st.columns([0.62, 0.38])
+    eh_left.slider(
+        "external hazard exponent",
+        min_value=0.0,
+        max_value=60.0,
+        step=0.1,
+        key="external_hazard_slider",
+        on_change=sync_external_exact_from_slider,
+        help="The model uses an external hazard rate of exp(-x). Enter 0 for the maximum rate; larger values weaken it.",
+    )
+    eh_right.number_input(
+        "external exact",
+        min_value=0.0,
+        max_value=60.0,
+        format="%.8g",
+        key="external_hazard_exact",
+        on_change=sync_external_slider_from_exact,
+    )
+    st.caption(f"External hazard rate = exp(-x) = {display_external_hazard(st.session_state['external_hazard_exact'])}")
+
+    st.divider()
+    st.checkbox("Enable heterogeneity", key="draft_hetro")
+    h1, h2 = st.columns(2)
+    h1.number_input("eta_var", min_value=0.0, format="%.4g", key="draft_eta_var")
+    h2.number_input("beta_var", min_value=0.0, format="%.4g", key="draft_beta_var")
+    h1.number_input("kappa_var", min_value=0.0, format="%.4g", key="draft_kappa_var")
+    h2.number_input("epsilon_var", min_value=0.0, format="%.4g", key="draft_epsilon_var")
+    h1.number_input("xc_var", min_value=0.0, format="%.4g", key="draft_xc_var")
+
+    st.divider()
+    r1, r2 = st.columns(2)
+    r1.number_input("sample size", min_value=100, max_value=25_000, step=100, key="draft_npeople")
+    max_nsteps = max(100, MAX_SIMULATION_STEPS_TIMES_SAMPLE_SIZE // int(st.session_state["draft_npeople"]))
+    if st.session_state["draft_nsteps"] > max_nsteps:
+        st.session_state["draft_nsteps"] = max_nsteps
+    r2.number_input("steps", min_value=1, max_value=max_nsteps, step=1, key="draft_nsteps")
+    r1.number_input("end time", min_value=1, max_value=250, step=1, key="draft_t_end")
+    r2.number_input(
+        "step multiplier",
+        min_value=1,
+        max_value=MAX_TIME_STEP_MULTIPLIER,
+        step=1,
+        key="draft_time_step_multiplier",
+    )
+    st.selectbox("method", ["brownian_bridge", "euler"], key="draft_method")
+
+    draft_params = draft_params_from_controls()
+    work_units = int(draft_params["npeople"]) * int(draft_params["nsteps"])
+    preview_work_units = min(draft_params["npeople"], PREVIEW_SIMULATION_MAX_SAMPLE_SIZE) * preview_params(draft_params)["nsteps"]
+    st.caption(f"Full work units: {work_units:,} / {MAX_SIMULATION_STEPS_TIMES_SAMPLE_SIZE:,}")
+    st.caption(f"Preview work units: {preview_work_units:,}")
+
+    replace_existing = st.checkbox("Replace selected simulation", value=True, disabled=selected_sim is None)
+    if st.button("Run full simulation", type="primary"):
         if work_units > MAX_SIMULATION_STEPS_TIMES_SAMPLE_SIZE:
             st.error("Reduce sample size or steps before running.")
         else:
-            params = {
-                "eta": eta,
-                "beta": beta,
-                "kappa": kappa,
-                "epsilon": epsilon,
-                "xc": xc,
-                "external_hazard": external_hazard_exponent,
-                "external_hazard_exponent": external_hazard_exponent,
-                "time_unit": form_time_unit,
-                "hetro": hetro,
-                "eta_var": eta_var,
-                "beta_var": beta_var,
-                "epsilon_var": epsilon_var,
-                "xc_var": xc_var,
-                "kappa_var": kappa_var,
-                "npeople": int(npeople),
-                "nsteps": int(nsteps),
-                "t_end": int(t_end),
-                "time_step_multiplier": int(time_step_multiplier),
-                "method": method,
-            }
-            with st.spinner("Running simulation..."):
-                result = run_simulation(sim_name, params)
-                if editing_sim is not None and replace_existing:
-                    st.session_state["simulations"][edit_index] = result
-                    st.session_state.pop("editing_sim_index", None)
-                    st.session_state.pop("editing_sim_params", None)
-                    st.session_state.pop("editing_sim_name", None)
-                    st.success(f"Updated {sim_name}")
-                else:
-                    st.session_state["simulations"].append(result)
-                    st.success(f"Added {sim_name}")
+            sim_name = st.session_state["draft_name_input"]
+            with st.spinner("Running full simulation..."):
+                result = run_simulation(sim_name, draft_params)
+            if selected_sim is not None and replace_existing:
+                st.session_state["simulations"][selected_sim_index] = result
+                queue_draft_state(result.params, result.name, selected_sim_index)
+                st.success(f"Updated {sim_name}")
+            else:
+                st.session_state["simulations"].append(result)
+                queue_draft_state(result.params, result.name, len(st.session_state["simulations"]) - 1)
+                st.success(f"Added {sim_name}")
+            st.rerun()
 
-    if st.session_state["simulations"] and st.button("Clear simulations"):
+    c1, c2 = st.columns(2)
+    if c1.button("Add as copy"):
+        if work_units > MAX_SIMULATION_STEPS_TIMES_SAMPLE_SIZE:
+            st.error("Reduce sample size or steps before running.")
+        else:
+            copy_name = f"{st.session_state['draft_name_input']} copy"
+            copy_params = draft_params.copy()
+            with st.spinner("Running full simulation..."):
+                st.session_state["simulations"].append(run_simulation(copy_name, copy_params))
+            queue_draft_state(copy_params, copy_name, len(st.session_state["simulations"]) - 1)
+            st.rerun()
+    if st.session_state["simulations"] and c2.button("Clear saved"):
         st.session_state["simulations"] = []
+        st.session_state["selected_sim_index"] = None
+        st.rerun()
+
+draft_params = st.session_state["draft_params"]
+preview_object = run_cached_preview("Live preview", params_cache_key(preview_params(draft_params)))
+preview_object.kind = "preview"
 
 st.header("Uploaded Data")
 uploads = st.file_uploader("Upload CSV or XLSX files", type=["csv", "xlsx", "xls"], accept_multiple_files=True)
@@ -610,12 +996,24 @@ for uploaded in uploads:
             hazard_col = None if hazard_choice == "No hazard column" else hazard_choice
             uploaded_objects.append(PlotObject(display_name, "life table", make_life_table(df, age_col, alive_col, hazard_col), upload_time_unit))
 
-objects = all_objects(uploaded_objects)
+saved_objects = all_objects(uploaded_objects)
+objects = [preview_object] + saved_objects
 
 st.header("Plots")
-if not objects:
-    st.info("Run a simulation or upload data to create plots.")
-    st.stop()
+if st.session_state["simulations"]:
+    st.subheader("Saved simulations")
+    card_columns = st.columns(min(3, len(st.session_state["simulations"])))
+    for index, sim in enumerate(st.session_state["simulations"]):
+        params = editable_params_from_simulation(sim)
+        label = (
+            f"{index + 1}. {sim.name}\n"
+            f"eta={params['eta']:.3g}, beta={params['beta']:.3g}, kappa={params['kappa']:.3g}, xc={params['xc']:.3g}"
+        )
+        if index == st.session_state.get("selected_sim_index"):
+            label = "Editing: " + label
+        if card_columns[index % len(card_columns)].button(label, key=f"sim-card-{index}"):
+            queue_draft_state(params, sim.name, index)
+            st.rerun()
 
 names = [obj.name for obj in objects]
 active_names = st.multiselect("Series", names, default=names)
@@ -658,23 +1056,154 @@ if "Survival" in plot_types:
     download_frames.extend(frames)
     y_title = "Conditional survival probability" if renormalize_survival else "Survival probability"
     x_title = "Time / median lifetime" if scale_survival_by_median else f"Time ({plot_time_unit})"
-    fig = plot_lines(frames, "Survival", y_title, x_title=x_title, log_y=False)
+    fig = plot_lines(frames, "Survival", y_title, x_title=x_title, log_y=False, style=style_config)
     st.plotly_chart(fig, width="stretch")
     st.download_button("Download survival plot HTML", fig.to_html(), file_name="survival.html", mime="text/html")
 
 if "Hazard" in plot_types:
     frames = [hazard_frame(obj, time_range, plot_time_unit) for obj in active_objects]
     download_frames.extend(frames)
-    fig = plot_lines(frames, "Hazard", f"Hazard (per {plot_time_unit})", x_title=f"Time ({plot_time_unit})", log_y=log_y)
+    fig = plot_lines(frames, "Hazard", f"Hazard (per {plot_time_unit})", x_title=f"Time ({plot_time_unit})", log_y=log_y, style=style_config)
     st.plotly_chart(fig, width="stretch")
     st.download_button("Download hazard plot HTML", fig.to_html(), file_name="hazard.html", mime="text/html")
 
 if "Death-time distribution" in plot_types:
     frames = [death_distribution_frame(obj, time_range, float(bin_width), plot_time_unit) for obj in active_objects]
     download_frames.extend(frames)
-    fig = plot_lines(frames, "Death-time Distribution", "Probability of death", x_title=f"Time ({plot_time_unit})", log_y=log_y)
+    fig = plot_lines(frames, "Death-time Distribution", "Probability of death", x_title=f"Time ({plot_time_unit})", log_y=log_y, style=style_config)
     st.plotly_chart(fig, width="stretch")
     st.download_button("Download death distribution plot HTML", fig.to_html(), file_name="death_distribution.html", mime="text/html")
+
+with st.expander("Parameter effect", expanded=False):
+    st.caption("Generate preview-resolution simulations across one parameter range.")
+    base_options = ["Current draft"] + [f"Saved {index + 1}: {sim.name}" for index, sim in enumerate(st.session_state["simulations"])]
+    base_choice = st.selectbox("Base", base_options)
+    if base_choice == "Current draft":
+        base_params = draft_params.copy()
+        base_name = st.session_state["draft_name"]
+    else:
+        saved_index = base_options.index(base_choice) - 1
+        base_sim = st.session_state["simulations"][saved_index]
+        base_params = editable_params_from_simulation(base_sim)
+        base_name = base_sim.name
+
+    sweep_cols = st.columns(4)
+    sweep_parameter = sweep_cols[0].selectbox("Parameter", list(SWEEP_PARAMETER_LABELS.keys()), format_func=lambda key: SWEEP_PARAMETER_LABELS[key])
+    current_sweep_value = float(base_params[sweep_parameter])
+    if sweep_parameter == "external_hazard_exponent":
+        default_min = max(0.0, current_sweep_value - 5.0)
+        default_max = min(60.0, current_sweep_value + 5.0)
+        sweep_min = sweep_cols[1].number_input("Minimum", min_value=0.0, max_value=60.0, value=float(default_min), format="%.8g")
+        sweep_max = sweep_cols[2].number_input("Maximum", min_value=0.0, max_value=60.0, value=float(max(default_max, default_min + 0.1)), format="%.8g")
+    else:
+        spec = CORE_PARAMETER_SPECS[sweep_parameter]
+        default_min = clamp(current_sweep_value / 2.0, spec["min"], spec["max"])
+        default_max = clamp(current_sweep_value * 2.0, spec["min"], spec["max"])
+        if default_max <= default_min:
+            default_max = clamp(default_min * 10.0, spec["min"], spec["max"])
+        sweep_min = sweep_cols[1].number_input("Minimum", min_value=spec["min"], max_value=spec["max"], value=float(default_min), format="%.8g")
+        sweep_max = sweep_cols[2].number_input("Maximum", min_value=spec["min"], max_value=spec["max"], value=float(default_max), format="%.8g")
+    sweep_count = sweep_cols[3].number_input("Steps", min_value=3, max_value=20, value=7, step=1)
+
+    sweep_view_cols = st.columns(3)
+    sweep_plot_kind = sweep_view_cols[0].selectbox("Plot", ["Survival", "Hazard", "Death-time distribution"])
+    show_references = sweep_view_cols[1].checkbox("Show selected series as reference", value=True)
+    generate_sweep = sweep_view_cols[2].button("Generate effect", type="primary")
+
+    if generate_sweep:
+        if sweep_max <= sweep_min:
+            st.error("Maximum must be larger than minimum.")
+        else:
+            if sweep_parameter == "external_hazard_exponent":
+                sweep_values = np.linspace(float(sweep_min), float(sweep_max), int(sweep_count))
+            else:
+                sweep_values = np.geomspace(float(sweep_min), float(sweep_max), int(sweep_count))
+            sweep_frames = []
+            with st.spinner("Generating parameter effect..."):
+                for value in sweep_values:
+                    params = base_params.copy()
+                    params[sweep_parameter] = float(value)
+                    if sweep_parameter == "external_hazard_exponent":
+                        params["external_hazard"] = float(value)
+                    sweep_obj = run_cached_preview(
+                        f"{base_name}: {SWEEP_PARAMETER_LABELS[sweep_parameter]}={value:.3g}",
+                        params_cache_key(preview_params(params)),
+                    )
+                    sweep_obj.kind = "sweep"
+                    frame = frame_for_plot(
+                        sweep_obj,
+                        sweep_plot_kind,
+                        time_range,
+                        plot_time_unit,
+                        float(bin_width),
+                        renormalize=renormalize_survival,
+                        scale_by_median=scale_survival_by_median,
+                    )
+                    frame["sweep_value"] = float(value)
+                    sweep_frames.append(frame)
+
+            reference_frames = []
+            if show_references:
+                for obj in active_objects:
+                    if obj.kind == "preview":
+                        continue
+                    reference_frames.append(
+                        frame_for_plot(
+                            obj,
+                            sweep_plot_kind,
+                            time_range,
+                            plot_time_unit,
+                            float(bin_width),
+                            renormalize=renormalize_survival,
+                            scale_by_median=scale_survival_by_median,
+                        )
+                    )
+
+            if sweep_plot_kind == "Survival":
+                sweep_y_title = "Conditional survival probability" if renormalize_survival else "Survival probability"
+                sweep_x_title = "Time / median lifetime" if scale_survival_by_median else f"Time ({plot_time_unit})"
+            elif sweep_plot_kind == "Hazard":
+                sweep_y_title = f"Hazard (per {plot_time_unit})"
+                sweep_x_title = f"Time ({plot_time_unit})"
+            else:
+                sweep_y_title = "Probability of death"
+                sweep_x_title = f"Time ({plot_time_unit})"
+            sweep_title = f"{sweep_plot_kind}: changing {SWEEP_PARAMETER_LABELS[sweep_parameter]}"
+            overlay_fig = plot_sweep_overlay(
+                sweep_frames,
+                reference_frames,
+                SWEEP_PARAMETER_LABELS[sweep_parameter],
+                sweep_title,
+                sweep_y_title,
+                sweep_x_title,
+                log_y if sweep_plot_kind != "Survival" else False,
+                style_config,
+            )
+            st.plotly_chart(overlay_fig, width="stretch")
+            st.download_button(
+                "Download parameter overlay HTML",
+                overlay_fig.to_html(),
+                file_name="parameter_effect_overlay.html",
+                mime="text/html",
+            )
+
+            animation_fig = plot_sweep_animation(
+                sweep_frames,
+                reference_frames,
+                SWEEP_PARAMETER_LABELS[sweep_parameter],
+                f"Animated {sweep_title}",
+                sweep_y_title,
+                sweep_x_title,
+                log_y if sweep_plot_kind != "Survival" else False,
+                style_config,
+            )
+            st.plotly_chart(animation_fig, width="stretch")
+            st.download_button(
+                "Download parameter animation HTML",
+                animation_fig.to_html(),
+                file_name="parameter_effect_animation.html",
+                mime="text/html",
+            )
 
 if download_frames:
     csv = pd.concat(download_frames, ignore_index=True).to_csv(index=False)
