@@ -16,7 +16,7 @@ SRtools provides tools for:
 
 ### Requirements
 
-- Python 3.7+
+- Python 3.10+
 - NumPy >= 1.21.0
 - Pandas >= 1.3.0
 - SciPy >= 1.7.0
@@ -28,7 +28,7 @@ SRtools provides tools for:
 ```bash
 git clone <repository-url>
 cd SRtools
-pip install -e .
+pip install -e ".[dev]"
 ```
 
 ### Install from PyPI
@@ -61,8 +61,7 @@ streamlit run app/streamlit_app.py
 For local development against this checkout:
 
 ```bash
-pip install -e .
-pip install streamlit plotly
+pip install -e ".[app]"
 streamlit run app/streamlit_app.py
 ```
 

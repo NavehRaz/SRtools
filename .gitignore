@@ -235,6 +235,7 @@ pyrightconfig.json
 
 # Misc
 *.toml
+!pyproject.toml
 
 
 
