@@ -544,7 +544,7 @@ class Posterior:
             return ax
 
 
-    def create_posterior_df(self,transforms = ['default'],labels = None, ds=None,ds_labels=None, kappa=0.5, filepath = None, smooth_mode = False, rescale=None, set_xc=False, truth=None):
+    def create_posterior_df(self,transforms = ['default'],labels = None, ds=None,ds_labels=None, kappa=0.5, filepath = None, smooth_mode = False, rescale=None, set_xc=False, truth=None, extra_param_labels=None):
         """
         Creates a summerey pandas dataframe of the maximum posterior statistics for the samples.
         For each transfor in the transforms list, the statistics are calculated and added to the dataframe.
@@ -578,6 +578,10 @@ class Posterior:
             If True, uses the xc value from the sample. If a float, uses that fixed xc value for all transforms.
             When set_xc is provided, the transformed samples will have 3 parameters instead of 4 (xc is not returned).
             Default is False.
+        extra_param_labels: list[str] or str, optional
+            Optional labels for extra parameters beyond the default base parameters.
+            If provided, length must match the number of extra parameters.
+            If None, backward-compatible defaults are used: ['ExtH', 'lambda0', ...].
         """
         #if rescale is a float or int, and "default" is in the transforms list, rescale the samples as a rescaling of time:
         n_features = self.unique_samples.shape[1]
@@ -611,8 +615,24 @@ class Posterior:
                               ["epsilon/beta^2","k/beta","k^2/epsilon","xc"],
                               ["eta/xc","beta/xc","epsilon/xc^2","k/xc"]]
             if n_features > 4 or (set_xc is not False and set_xc is not None and n_features > 3):
-                extra_labels = ['ExtH']
-                extra_labels += [f'lambda{i}' for i in range(n_features-4)]
+                base_feature_count = 3 if (set_xc is not False and set_xc is not None) else 4
+                extra_param_count = n_features - base_feature_count
+                if extra_param_labels is None:
+                    extra_labels = ['ExtH']
+                    if extra_param_count > 1:
+                        extra_labels += [f'lambda{i}' for i in range(extra_param_count-1)]
+                else:
+                    if isinstance(extra_param_labels, str):
+                        extra_labels = [extra_param_labels]
+                    elif isinstance(extra_param_labels, (list, tuple, np.ndarray)):
+                        extra_labels = [str(label) for label in extra_param_labels]
+                    else:
+                        raise TypeError("extra_param_labels must be a string or a sequence of labels")
+                    if len(extra_labels) != extra_param_count:
+                        raise ValueError(
+                            f"extra_param_labels length ({len(extra_labels)}) must match "
+                            f"the number of extra parameters ({extra_param_count})"
+                        )
                 for i,label in enumerate(labels):
                     labels[i] += extra_labels
              

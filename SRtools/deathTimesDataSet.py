@@ -18,6 +18,57 @@ def _markevery_from_dt(times, dt):
     return indices
 
 
+def _normalize_ci_style(ci_style, default_style="fill"):
+    """Normalize CI style names to {'fill', 'errorbar'}."""
+    if ci_style is None:
+        return default_style
+    style = str(ci_style).strip().lower()
+    if style in ("fill", "filled", "band", "shade", "shaded"):
+        return "fill"
+    if style in ("errorbar", "errorbars", "error bar", "error bars"):
+        return "errorbar"
+    raise ValueError("CI style must be 'fill' or 'error bars'/'errorbar'.")
+
+
+def _line_marker_indices(line, n_points):
+    """Return plotted marker indices for a matplotlib line."""
+    marker = line.get_marker()
+    if marker in (None, "", "None", "none", " ", "NoneType"):
+        return np.array([], dtype=int)
+
+    me = line.get_markevery()
+    if me is None:
+        idx = np.arange(n_points, dtype=int)
+    elif isinstance(me, slice):
+        idx = np.arange(n_points, dtype=int)[me]
+    elif isinstance(me, (int, np.integer)):
+        step = int(me)
+        idx = np.arange(0, n_points, step, dtype=int) if step > 0 else np.arange(n_points, dtype=int)
+    elif isinstance(me, tuple) and len(me) == 2 and all(isinstance(v, (int, np.integer)) for v in me):
+        start, step = int(me[0]), int(me[1])
+        idx = np.arange(start, n_points, step, dtype=int) if step > 0 else np.arange(n_points, dtype=int)
+    else:
+        me_arr = np.asarray(me)
+        if me_arr.dtype == bool:
+            idx = np.where(me_arr)[0]
+        else:
+            idx = me_arr.astype(int)
+
+    idx = np.asarray(idx, dtype=int)
+    return idx[(idx >= 0) & (idx < n_points)]
+
+
+def _errorbar_components_from_bounds(y, lower, upper):
+    """Convert CI bounds to nonnegative asymmetric yerr values."""
+    y = np.asarray(y, dtype=float)
+    lower = np.asarray(lower, dtype=float)
+    upper = np.asarray(upper, dtype=float)
+    y_anchor = np.clip(y, lower, upper)
+    yerr_lower = np.maximum(0.0, y_anchor - lower)
+    yerr_upper = np.maximum(0.0, upper - y_anchor)
+    return y_anchor, yerr_lower, yerr_upper
+
+
 class Dataset:
     """
     This class contains the data for the deathTimes dataset and allows access to survival and hazard information.
@@ -181,7 +232,10 @@ class Dataset:
         time_range=None,
         mark_every_dt=None,
         CI=True,
+        ci_alpha=0.3,
         ci_percentile=0.95,
+        ci_type="fill",
+        CI_style=None,
         **kwargs,
     ):
         """
@@ -193,7 +247,13 @@ class Dataset:
             mark_every_dt (float or None): If not None, thin markers so that
                 consecutive markers are at least this many time-units apart.
             CI (bool): Whether to show Kaplan-Meier confidence intervals. Default is True.
+            ci_alpha (float): Transparency of confidence interval display.
             ci_percentile (float): Confidence interval coverage probability (e.g. 0.95 for 95% CI).
+            ci_type (str): CI display style. Supported:
+                - 'fill' (default): shaded confidence band
+                - 'errorbar': vertical error bars
+            CI_style (str, optional): Alias for ``ci_type``. Also accepts
+                ``'error bars'`` in addition to ``'errorbar'``.
             **kwargs: Additional keyword arguments for the plot.
         """
         if ax is None:
@@ -206,6 +266,9 @@ class Dataset:
         ci_percentile = round(ci_percentile, 4)
         if not (0.0 < ci_percentile < 1.0):
             raise ValueError("ci_percentile must be a float in (0, 1), e.g. 0.95 for 95% CI.")
+        ci_type = _normalize_ci_style(CI_style, default_style=ci_type)
+        if ci_type not in ("fill", "errorbar"):
+            raise ValueError("ci_type must be either 'fill' or 'errorbar'.")
         alpha = 1.0 - ci_percentile
         show_default_95_ci = abs(ci_percentile - 0.95) < 1e-9
 
@@ -223,7 +286,7 @@ class Dataset:
             plot_kwargs.pop("ci_alpha", None)
             plot_kwargs.pop("ci_force_lines", None)
             plot_kwargs.pop("ci_legend", None)
-            ax.plot(t, s, **plot_kwargs)
+            line, = ax.plot(t, s, **plot_kwargs)
 
             if CI:
                 if show_default_95_ci:
@@ -243,28 +306,87 @@ class Dataset:
                     _, bottom = trim_to_range(t_all, bottom_all, time_range, renormalize_survival=True)
                     _, top = trim_to_range(t_all, top_all, time_range, renormalize_survival=True)
 
-                fill_alpha = kwargs.get("ci_alpha", 0.3)
                 color = plot_kwargs.get("color", None)
-                if color is not None:
-                    ax.fill_between(t, bottom, top, alpha=fill_alpha, color=color)
+                if ci_type == "fill":
+                    fill_alpha = ci_alpha
+                    if color is not None:
+                        ax.fill_between(t, bottom, top, alpha=fill_alpha, color=color)
+                    else:
+                        ax.fill_between(t, bottom, top, alpha=fill_alpha)
                 else:
-                    ax.fill_between(t, bottom, top, alpha=fill_alpha)
+                    marker_idx = _line_marker_indices(line, len(t))
+                    if len(marker_idx) > 0:
+                        t_err = np.asarray(t)[marker_idx]
+                        s_err, yerr_lower, yerr_upper = _errorbar_components_from_bounds(
+                            np.asarray(s)[marker_idx],
+                            np.asarray(bottom)[marker_idx],
+                            np.asarray(top)[marker_idx],
+                        )
+                        ax.errorbar(
+                            t_err,
+                            s_err,
+                            yerr=(yerr_lower, yerr_upper),
+                            fmt="none",
+                            color=color,
+                            alpha=ci_alpha,
+                            capsize=kwargs.get("capsize", 2),
+                        )
         else:
             if mark_every_dt is not None:
                 t_km = self.kmf.timeline
                 if len(t_km) > 1:
                     kwargs['markevery'] = _markevery_from_dt(t_km, mark_every_dt)
 
-            # Lifelines handles CI display.
-            kwargs["ci_show"] = CI
-            if (not CI) or show_default_95_ci:
+            # Lifelines handles default CI display for shaded-band mode.
+            kwargs["ci_show"] = CI and (ci_type == "fill")
+            if (not CI) or (ci_type == "fill" and show_default_95_ci):
                 self.kmf.plot_survival_function(ax=ax, **kwargs)
             else:
-                # Need a temporary fitter to match the requested CI width.
+                # For non-default CI widths or errorbar CI mode, plot line first
+                # and then add CI manually from a temporary fitter.
+                plot_kwargs = kwargs.copy()
+                plot_kwargs.pop("ci_show", None)
+                plot_kwargs.pop("ci_alpha", None)
+                plot_kwargs.pop("ci_force_lines", None)
+                plot_kwargs.pop("ci_legend", None)
+
                 T = np.asarray(self.death_times, dtype=float)
                 E = self.events
                 temp_kmf = KaplanMeierFitter(alpha=alpha).fit(T, E)
-                temp_kmf.plot_survival_function(ax=ax, **kwargs)
+                t = np.asarray(temp_kmf.timeline, dtype=float)
+                s = np.asarray(temp_kmf.survival_function_.values)[:, 0]
+                line, = ax.plot(t, s, **plot_kwargs)
+
+                lower_key = f"KM_estimate_lower_{ci_percentile:g}"
+                upper_key = f"KM_estimate_upper_{ci_percentile:g}"
+                bottom = np.array(temp_kmf.confidence_interval_[lower_key].values)
+                top = np.array(temp_kmf.confidence_interval_[upper_key].values)
+                color = plot_kwargs.get("color", None)
+
+                if ci_type == "fill":
+                    fill_alpha = ci_alpha
+                    if color is not None:
+                        ax.fill_between(t, bottom, top, alpha=fill_alpha, color=color)
+                    else:
+                        ax.fill_between(t, bottom, top, alpha=fill_alpha)
+                else:
+                    marker_idx = _line_marker_indices(line, len(t))
+                    if len(marker_idx) > 0:
+                        t_err = np.asarray(t)[marker_idx]
+                        s_err, yerr_lower, yerr_upper = _errorbar_components_from_bounds(
+                            np.asarray(s)[marker_idx],
+                            np.asarray(bottom)[marker_idx],
+                            np.asarray(top)[marker_idx],
+                        )
+                        ax.errorbar(
+                            t_err,
+                            s_err,
+                            yerr=(yerr_lower, yerr_upper),
+                            fmt="none",
+                            color=color,
+                            alpha=ci_alpha,
+                            capsize=kwargs.get("capsize", 2),
+                        )
 
         ax.set_xlabel('Age')
         ax.spines['right'].set_visible(False)
@@ -591,33 +713,130 @@ class Dataset:
             # Assume iterable/list
             return {stat: compute(stat) for stat in types}
 
-    def plotHazard(self, ax=None, time_range=None, **kwargs):
+    def plotHazard(
+        self,
+        ax=None,
+        time_range=None,
+        trim_by_n=None,
+        CI=True,
+        ci_alpha=0.3,
+        ci_type="fill",
+        CI_style=None,
+        **kwargs,
+    ):
         """
         Plots the hazard function.
         
         Parameters:
             ax (matplotlib.axes.Axes, optional): The axes to plot on. Default is None.
             time_range (array-like, optional): Time range [start, stop] to filter the hazard plot. Default is None.
+            trim_by_n (int, optional): Trim the plotted hazard to start after the trim_by_n'th death
+                                       and stop when trim_by_n people are still alive. Default is None
+                                       (no trimming).
+            CI (bool): Whether to plot confidence intervals. Default is True.
+            ci_alpha (float): Transparency of confidence interval display.
+            ci_type (str): CI display style. Supported: 'fill' or 'errorbar'.
+            CI_style (str, optional): Alias for ``ci_type``. Also accepts
+                ``'error bars'`` in addition to ``'errorbar'``.
             **kwargs: Additional keyword arguments for the plot.
         """
         if ax is None:
             fig, ax = plt.subplots()
-        
-        if time_range is not None:
-            # Get hazard data and filter by time_range
-            t, h = self.hazard
-            t = t.copy()
-            h = h.copy()
-            # Filter to time range
-            mask = (t >= time_range[0]) & (t <= time_range[1])
-            t_filtered = t[mask]
-            h_filtered = h[mask]
-            ax.plot(t_filtered, h_filtered, **kwargs)
+        ci_type = _normalize_ci_style(CI_style, default_style=ci_type)
+        if ci_type not in ("fill", "errorbar"):
+            raise ValueError("ci_type must be either 'fill' or 'errorbar'.")
+
+        # Calculate trim bounds using the same logic as plotScaledHazard.
+        t_min = None
+        t_max = None
+        if trim_by_n is not None and trim_by_n > 0:
+            death_times = self.death_times[self.events == 1]
+            death_times_sorted = np.sort(death_times)
+            n_deaths = len(death_times_sorted)
+
+            if trim_by_n < n_deaths and (n_deaths - trim_by_n) > trim_by_n:
+                t_min = death_times_sorted[trim_by_n] if trim_by_n < n_deaths else None
+                t_max = death_times_sorted[n_deaths - trim_by_n - 1] if (n_deaths - trim_by_n) > 0 else None
+
+        # Build hazard/CI data directly so CI error bars can be marker-aware.
+        bandwidth = kwargs.pop("bandwidth", self.bandwidth)
+        hazard_df = self.naf.smoothed_hazard_(bandwidth=bandwidth)
+        hazard_series = hazard_df.iloc[:, 0].rename("hazard")
+        ci_df = None
+        if CI:
+            ci_df = self.naf.smoothed_hazard_confidence_intervals_(bandwidth=bandwidth)
+            # Align by index to avoid pairing mismatches between hazard and CI grids.
+            joined = pd.concat([hazard_series, ci_df.iloc[:, 0], ci_df.iloc[:, 1]], axis=1, join="inner").dropna()
+            t = np.asarray(joined.index, dtype=float)
+            h = np.asarray(joined.iloc[:, 0].values, dtype=float)
+            ci_lower = np.asarray(joined.iloc[:, 1].values, dtype=float)
+            ci_upper = np.asarray(joined.iloc[:, 2].values, dtype=float)
+            # Be robust to unexpected column ordering.
+            ci_low = np.minimum(ci_lower, ci_upper)
+            ci_high = np.maximum(ci_lower, ci_upper)
+            ci_lower = ci_low
+            ci_upper = ci_high
         else:
-            if self.bandwidth is None:
-                self.naf.plot_hazard(ax=ax, **kwargs)
+            t = np.asarray(hazard_series.index, dtype=float)
+            h = np.asarray(hazard_series.values, dtype=float)
+            ci_lower = None
+            ci_upper = None
+
+        if time_range is not None:
+            mask = (t >= time_range[0]) & (t <= time_range[1])
+            t = t[mask]
+            h = h[mask]
+            if CI:
+                ci_lower = ci_lower[mask]
+                ci_upper = ci_upper[mask]
+
+        if trim_by_n is not None and trim_by_n > 0 and t_min is not None and t_max is not None:
+            mask_trim = (t >= t_min) & (t <= t_max)
+            t = t[mask_trim]
+            h = h[mask_trim]
+            if CI:
+                ci_lower = ci_lower[mask_trim]
+                ci_upper = ci_upper[mask_trim]
+
+        # Hazard is plotted on a log scale below; enforce positive plotted values.
+        log_floor = kwargs.get("log_floor", 1e-12)
+        h = np.maximum(h, log_floor)
+        if CI:
+            ci_lower = np.maximum(ci_lower, log_floor)
+            ci_upper = np.maximum(ci_upper, log_floor)
+            ci_upper = np.maximum(ci_upper, ci_lower)
+
+        plot_kwargs = kwargs.copy()
+        plot_kwargs.pop("ci_show", None)
+        plot_kwargs.pop("ci_force_lines", None)
+        plot_kwargs.pop("ci_legend", None)
+        line, = ax.plot(t, h, **plot_kwargs)
+
+        if CI:
+            color = plot_kwargs.get("color", None)
+            if ci_type == "fill":
+                fill_alpha = ci_alpha
+                if color is not None:
+                    ax.fill_between(t, ci_lower, ci_upper, alpha=fill_alpha, color=color)
+                else:
+                    ax.fill_between(t, ci_lower, ci_upper, alpha=fill_alpha)
             else:
-                self.naf.plot_hazard(ax=ax, bandwidth=self.bandwidth, **kwargs)
+                marker_idx = _line_marker_indices(line, len(t))
+                if len(marker_idx) > 0:
+                    y, yerr_lower, yerr_upper = _errorbar_components_from_bounds(
+                        np.asarray(h)[marker_idx],
+                        np.asarray(ci_lower)[marker_idx],
+                        np.asarray(ci_upper)[marker_idx],
+                    )
+                    ax.errorbar(
+                        np.asarray(t)[marker_idx],
+                        y,
+                        yerr=(yerr_lower, yerr_upper),
+                        fmt="none",
+                        color=color,
+                        alpha=ci_alpha,
+                        capsize=kwargs.get("capsize", 2),
+                    )
         ax.set_yscale('log')
         ax.set_xlabel('Age')
         ax.spines['right'].set_visible(False)
