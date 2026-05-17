@@ -1,245 +1,427 @@
 # SRtools
 
-A comprehensive Python library for analyzing mortality and aging data using the **Saturating Removal (SR) model**. The SR model is a stochastic differential equation model that describes aging as a process of damage accumulation and removal, providing a mechanistic framework for understanding survival and mortality patterns.
+A Python library for analyzing mortality and aging data using the **Saturating Removal (SR) model** — a mechanistic, stochastic model that describes aging as the result of damage accumulation and cellular repair. SRtools lets you simulate survival curves, fit parameters to your own mortality data, and compare aging strategies across species.
 
-## Overview
+**Published as**: `srtools-aging` on PyPI (imports as `SRtools`).  
+**Paper**: Naveh Raz et al., *A damage accumulation model reveals strategies of aging across species*, Research Square 2025. [https://doi.org/10.21203/rs.3.rs-6946440/v1](https://doi.org/10.21203/rs.3.rs-6946440/v1)
 
-SRtools provides tools for:
-- **SR Model Simulation**: Simulate aging trajectories using various SR model variants
-- **Survival Analysis**: Analyze death times, survival curves, and hazard functions
-- **Parameter Estimation**: Fit SR model parameters to data using maximum likelihood and Bayesian methods
-- **Life Table Analysis**: Work with aggregate survival data from life tables
-- **Parametric Fitting**: Fit Weibull, Gompertz, and Makeham-Gompertz distributions to survival data
-- **Bayesian Inference**: Perform MCMC sampling for parameter estimation and uncertainty quantification
+---
 
-## Installation
+## The SR Model
 
-### Requirements
+The SR model tracks a single internal damage variable *X(t)* for each individual. Death occurs when damage crosses a critical threshold *xc*. The dynamics follow the stochastic differential equation:
 
-- Python 3.10+
-- NumPy >= 1.21.0
-- Pandas >= 1.3.0
-- SciPy >= 1.7.0
-- Matplotlib >= 3.4.0
-- And other dependencies (see `requirements.txt`)
-
-### Install from source
-
-```bash
-git clone <repository-url>
-cd SRtools
-pip install -e ".[dev]"
+```
+dX/dt = η·t  −  β·X/(X + κ)  +  √(2ε)·ξ
 ```
 
-### Install from PyPI
+| Parameter | Symbol | Biological meaning |
+|-----------|--------|--------------------|
+| `eta` | η | Rate at which new damage accumulates (increases with age) |
+| `beta` | β | Maximum damage removal capacity |
+| `kappa` | κ | Half-saturation constant for damage removal |
+| `epsilon` | ε | Stochasticity / noise in damage dynamics |
+| `xc` | x_c | Critical damage threshold — individual dies when X exceeds this |
 
-The PyPI distribution name is `srtools-aging` because `srtools` is already used
-by an unrelated project. The Python import name remains `SRtools`:
+The key competition between accumulation (η·t) and removal (β·X/(X+κ)) — which saturates at high damage — is what produces realistic, Gompertz-like survival curves.
+
+---
+
+## Installation
 
 ```bash
 pip install srtools-aging
 ```
 
-Or install dependencies directly:
+> **Note**: The PyPI package is called `srtools-aging` (the name `srtools` was already taken). You import it as `SRtools`.
+
+**Install from source** (for development):
 
 ```bash
-pip install -r requirements.txt
+git clone https://github.com/NavehRaz/SRtools
+cd SRtools
+pip install -e ".[dev]"
 ```
 
-### Web app
+**Requirements**: Python ≥ 3.10, NumPy, SciPy, Matplotlib, lifelines, emcee, numba, and others (see `requirements.txt`).
 
-The Streamlit web app lives in `app/` and is intentionally separate from the
-core package. Streamlit is not a dependency of `SRtools`.
-
-For a deployed/stable app environment:
-
-```bash
-pip install -r app/requirements.txt
-streamlit run app/streamlit_app.py
-```
-
-For local development against this checkout:
-
-```bash
-pip install -e ".[app]"
-streamlit run app/streamlit_app.py
-```
+---
 
 ## Quick Start
 
-### Basic SR Model Simulation
+### Tier 1 — Load your data and plot a survival curve
+
+Your data should be a CSV file with a column named `death dt` containing the age at death (or last observation) for each individual.
 
 ```python
-from SRtools import SR_lf
+from SRtools import deathTimesDataSet as dtds
 
-# Create an SR model simulation
-# Parameters: eta, beta, kappa, epsilon, xc, npeople, nsteps, t_end
-model = SR_lf(
-    eta=0.5,      # Damage production rate
-    beta=50,     # Damage removal parameter
-    kappa=0.5,    # Removal saturation parameter
-    epsilon=50, # Noise parameter
-    xc=17.0,      # Critical damage threshold
-    npeople=10000,
-    nsteps=5000,
-    t_end=110
-)
+ds = dtds.dsFromFile('my_data.csv')
 
-# Access survival and hazard functions
-survival_times, survival_values = model.getSurvival()
-hazard_times, hazard_values = model.getHazard()
+# Basic survival statistics
+print(ds.getMedianLifetime())
+survival_times, survival_values = ds.getSurvival()
+hazard_times, hazard_values = ds.getHazard()
 
-# Plot survival curve
-model.plotSurvival()
+# Plot
+ds.plotSurvival()
+ds.plotHazard()
 ```
 
-### Working with Death Times Data
+Or construct a dataset directly from arrays:
 
 ```python
-from SRtools import Dataset
 import numpy as np
+from SRtools import Dataset
 
-# Create dataset from death times
-death_times = np.array([...])  # Your death times data
-events = np.ones_like(death_times)  # Event indicators (1 = death, 0 = censored)
+death_times = np.array([45, 62, 71, 80, 55, 90, ...])
+events = np.ones_like(death_times)        # 1 = died, 0 = censored
 
-dataset = Dataset(death_times, events)
-
-# Calculate survival and hazard
-survival_times, survival_values = dataset.getSurvival()
-hazard_times, hazard_values = dataset.getHazard()
-
-# Plot results
-dataset.plotSurvival()
-dataset.plotHazard()
+ds = Dataset(death_times, events)
+ds.plotSurvival()
 ```
 
-### Life Table Analysis
+For **aggregate life-table data** (age bins and counts of survivors), use `Life_table`:
 
 ```python
 from SRtools import Life_table
 import numpy as np
 
-# Create life table from age bins and number alive
-ages = np.array([0, 10, 20, 30, 40, 50, 60, 70, 80, 90])
+ages   = np.array([0, 10, 20, 30, 40, 50, 60, 70, 80, 90])
 n_alive = np.array([1000, 950, 900, 800, 600, 400, 200, 80, 20, 2])
 
-life_table = Life_table(ages, n_alive)
-
-# Access survival and hazard
-survival_times, survival_values = life_table.getSurvival()
-hazard_times, hazard_values = life_table.getHazard()
+lt = Life_table(ages, n_alive)
+lt.plotSurvival()
 ```
 
-### Bayesian Parameter Estimation
+---
+
+### Tier 2 — Simulate with built-in organism presets
+
+SRtools ships with fitted SR parameters for a range of organisms. Use them to generate a simulation without any fitting step.
 
 ```python
-from SRtools import Dataset
-from SRtools.sr_mcmc import run_mcmc
+from SRtools import presets
 
-# Load your data
-dataset = Dataset(death_times, events)
+# See all available presets
+print(presets.get_preset_names())
+# e.g.: combined_human_M, combined_human_F, mice_M, mice_F,
+#       celegans, yeast, ecoli, drosophila_853, cats_vp_M,
+#       Labradors_vetCompass, Sweden_M_1910_hetro, ...
 
-# Run MCMC to estimate SR model parameters
-# See sr_mcmc.py for detailed usage
+# Simulate with human (male combined) parameters
+sim = presets.getSim('combined_human_M')
+sim.plotSurvival()
+
+# Retrieve only the parameter vector [eta, beta, epsilon, xc]
+theta = presets.getTheta('combined_human_M')
+print(theta)   # [eta, beta, epsilon, xc]
+
+# Compare two species on one plot
+import matplotlib.pyplot as plt
+fig, ax = plt.subplots()
+presets.getSim('combined_human_M').plotSurvival(ax=ax, label='Human (M)')
+presets.getSim('mice_M').plotSurvival(ax=ax, label='Mouse (M)')
+ax.legend()
+plt.show()
 ```
 
-## Core Components
+The `type` argument controls which estimate is used (`"mode_overall"` default, `"mode"`, or `"max_likelihood"`):
 
-### Dataset Classes
+```python
+theta_mle = presets.getTheta('combined_human_M', type='max_likelihood')
+```
 
-- **`Dataset`**: Base class for working with individual death times data
-- **`DatasetCollection`**: Manage multiple datasets
-- **`Life_table`**: Work with aggregate survival data from life tables
+---
 
-### SR Model Variants
+### Tier 3 — Fit parameters to your data with MCMC
 
-- **`SR`**: Standard SR model with full parameter set and parent class for advanced models.
+This is the full Bayesian inference pipeline. It uses `emcee` ensemble sampling and can take minutes to hours depending on the dataset size and number of steps.
 
-It is recommended to work with these:
+```python
+from SRtools import sr_mcmc as srmc
+from SRtools import deathTimesDataSet as dtds
+from SRtools import samples_utils as su
+from SRtools import SR_hetro as srh
 
-- **`SR_Hetro`**: SR model with population heterogeneity (most advanced)
-- **`SR_lf`**: SR model integrated with lifelines library (recommended for general use)
+# 1. Load data
+ds = dtds.dsFromFile('my_data.csv')
 
-### Parametric Fitters
+# 2. Run MCMC — results are saved to an HDF5 backend file
+sampler = srmc.getSampler(
+    nwalkers=32,
+    num_mcmc_steps=2000,
+    dataSet=ds,
+    back_end_file='results.h5',
+    t_end=110,           # maximum age in your data
+    npeople=10000,       # simulated individuals per likelihood evaluation
+    nsteps=3000,         # simulation time steps
+)
 
-- **`WeibullFitter`**: Fit Weibull distribution to survival data
-- **`ExtendedWeibullFitter`**: Extended Weibull fitting
-- **`GompertzFitter`**: Fit Gompertz distribution
-- **`MakehamGompertzFitter`**: Fit Makeham-Gompertz distribution
-- **`GompertzMakehamFitter`**: Alternative Makeham-Gompertz fitting
+# 3. Load completed samples (discard burn-in, thin for autocorrelation)
+samples_trans, lnprobs = srmc.loadSamplesFromDir(
+    'results/',          # folder containing the .h5 file(s)
+    best=False,
+    thin=5,
+    discard=200,
+)
 
-### Bayesian Analysis
+# 4. Build a Posterior object and save it
+# save_to_file writes two files:
+#   posterior.csv        — discretized posterior metadata (human-readable)
+#   posterior_data.npz   — raw samples and log-probabilities (compressed binary)
+post = su.Posterior(samples_trans, lnprobs, bins=100, log=True)
+post.save_to_file('posterior.csv')
 
-- **`Posterior`**: Analyze samples from MCMC to calculate and analyze posterior probabilities
-- **`JointPosterior`**: Joint posterior analysis on several MCMC runs
-- **`sr_mcmc`**: MCMC sampling functionality using emcee and some supporting utilities and analysis
+# 5. Extract best-fit parameters and simulate
+best_theta_trans = post.best_raw_sample()
+best_theta = srmc.inv_transform(best_theta_trans)   # back-transform from log space
 
-### Utilities
+best_sim = srh.getSrHetro(best_theta, npeople=10000, nsteps=3000, t_end=110)
 
-- **`Guess`**: Simple tool for inital parameter estimation 
-- **`plotting_utils`**: Visualization utilities for the comparison of parameters and CI's estimated from different runs
-- **`distance_metrics`**: Distance metrics for model comparison (most of them are likelihoods and not distances)
-- **`readResults`**: Read and analyze saved results 
-- **`readResultsBaysian`**: Read Bayesian analysis results
+# 6. Compare simulation to data
+import matplotlib.pyplot as plt
+fig, ax = plt.subplots()
+ds.plotSurvival(ax=ax, label='data', linestyle='--')
+best_sim.plotSurvival(ax=ax, label='best fit')
+ax.legend()
+plt.show()
+```
 
-## SR Model Description
+To reload a saved posterior in a later session:
 
-The SR model describes the evolution of damage (X) over time:
+```python
+post = su.Posterior.load_from_file('posterior.csv')
+```
 
-dX/dt = eta * t - (beta * X) / (X + kappa) + sqrt(2 * epsilon) * xi
+---
 
-Where:
-- **eta**: Damage production rate (linear growth)
-- **beta**: Damage removal parameter
-- **kappa**: Removal saturation parameter
-- **epsilon**: Stochastic noise parameter
-- **xc**: Critical damage threshold (death occurs when X > xc)
-- **xi**: White noise (Wiener process)
+### Tier 4 — Extend the model with custom dynamics
 
-Death occurs when the damage X exceeds the critical threshold xc.
+Subclass `SR_Hetro` and override `calc_death_times()` to implement any custom stochastic aging model. The subclass inherits all dataset and plotting methods automatically.
 
-## Key Features
+```python
+import numpy as np
+from SRtools import SR_hetro as srh
+from SRtools import SRmodellib as sr
+from SRtools import sr_mcmc as srmc
 
-- **Flexible Simulation**: Multiple SR model variants and simulation methods
-- **Efficient Computation**: Uses Numba JIT compilation for performance
-- **Comprehensive Analysis**: Survival curves, hazard functions, cumulative hazards
-- **Statistical Fitting**: Maximum likelihood and Bayesian parameter estimation
-- **Visualization**: Built-in plotting functions for survival and hazard analysis
-- **Life Table Support**: Work with aggregate survival data
-- **MCMC Integration**: Full Bayesian inference using emcee
 
-## Documentation
+class MySR(srh.SR_Hetro):
+    """SR model with an additional constant damage source (gamma)."""
 
-For detailed API documentation, see the docstrings in individual modules. Key modules include:
+    def __init__(self, eta, beta, kappa, epsilon, xc, npeople, nsteps, t_end,
+                 gamma=0.0,                      # custom parameter
+                 eta_var=0, beta_var=0, kappa_var=0, epsilon_var=0, xc_var=0.2,
+                 t_start=0, tscale='years', external_hazard=np.inf,
+                 time_step_multiplier=1, parallel=False, bandwidth=3,
+                 method='brownian_bridge'):
+        self.gamma = gamma
+        super().__init__(eta, beta, kappa, epsilon, xc, npeople, nsteps, t_end,
+                         eta_var, beta_var, kappa_var, epsilon_var, xc_var,
+                         t_start, tscale, external_hazard,
+                         time_step_multiplier, parallel, bandwidth, method)
 
-- `SRmodellib.py`: Core SR model implementation
-- `deathTimesDataSet.py`: Dataset handling and survival analysis
-- `life_table.py`: Life table analysis
-- `sr_mcmc.py`: MCMC sampling and Bayesian inference
-- `weibullFitter.py`: Weibull distribution fitting
-- `makhamGompertzFitter.py`: Gompertz-Makeham fitting
+    def calc_death_times(self):
+        # Modify the simulation here.
+        # Must return (death_times_array, events_array).
+        # Call the parent to get the base simulation, then post-process,
+        # or write a fully custom Numba-jitted function (see SR_hetro.py).
+        return super().calc_death_times()
 
-## Deprecated Modules
 
-The following modules are deprecated and should not be used in new code:
-- `probability.py`
-- `prior_gen.py`
-- `life_table_old.py`
+# Factory function — matches the signature expected by getSampler
+def getMySR(theta, n=10000, nsteps=3000, t_end=110,
+            external_hazard=np.inf, time_step_multiplier=1,
+            npeople=None, parallel=False, gamma=0.0, **kwargs):
+    if npeople is not None:
+        n = npeople
+    eta, beta, epsilon, xc = theta[:4]
+    return MySR(eta=eta, beta=beta, kappa=0.5, epsilon=epsilon, xc=xc,
+                gamma=gamma, npeople=n, nsteps=nsteps, t_end=t_end,
+                external_hazard=external_hazard,
+                time_step_multiplier=time_step_multiplier, parallel=parallel)
 
-Use `life_table.py` instead of `life_table_old.py`. For prior generation and probability calculations, use the functionality in `sr_mcmc.py` and `samples_utils.py`.
 
-## Examples
+# Model function for MCMC (returns log-likelihood)
+def model(theta, n, nsteps, t_end, dataSet, sim=None, metric='baysian',
+          time_range=None, time_step_multiplier=1, parallel=False,
+          dt=1, set_params=None, debug=False, kwargs=None):
+    sim = getMySR(theta, n=n, nsteps=nsteps, t_end=t_end,
+                  time_step_multiplier=time_step_multiplier, parallel=parallel)
+    tprob = sr.distance(dataSet, sim, metric=metric, time_range=time_range, dt=dt)
+    return tprob if not np.any(np.isnan(tprob)) else -np.inf
 
-See the ... notebooks for example usage.
+
+# Pass the custom model function to getSampler
+sampler = srmc.getSampler(
+    nwalkers=32, num_mcmc_steps=1000, dataSet=ds,
+    back_end_file='custom_results.h5', t_end=110,
+    model_func=model,
+)
+```
+
+---
+
+## Core API Reference
+
+### Dataset classes
+
+| Class | Use case | Key methods |
+|-------|----------|-------------|
+| `Dataset` | Individual-level death times | `getSurvival()`, `getHazard()`, `plotSurvival()`, `plotHazard()`, `getMedianLifetime()`, `toCsv()` |
+| `DatasetCollection` | Manage and compare multiple datasets | — |
+| `Life_table` | Aggregate survival data (age bins + counts) | Same interface as `Dataset` |
+
+Load from file: `dtds.dsFromFile(path)` — reads a CSV/Excel with a `death dt` column.
+
+### SR model variants
+
+| Class / function | When to use |
+|-----------------|-------------|
+| `getSrHetro(theta, ...)` | **Recommended** — heterogeneous population, Brownian-bridge simulation |
+| `SR_Hetro` | Base class for custom model extensions |
+| `SR_lf` | Simple homogeneous model with lifelines backend |
+| `SR` | Low-level parent class; prefer `getSrHetro` |
+
+### Parametric fitters
+
+All fitters wrap lifelines and share the `Dataset` interface.
+
+| Class | Distribution |
+|-------|-------------|
+| `WeibullFitter` | Weibull |
+| `ExtendedWeibullFitter` | Extended Weibull |
+| `GompertzFitter` | Gompertz |
+| `GompertzMakehamFitter` | Gompertz–Makeham |
+| `MakehamGompertzFitter` | Makeham–Gompertz |
+
+### Bayesian analysis
+
+| Function / class | Purpose |
+|-----------------|---------|
+| `srmc.getSampler(...)` | Run MCMC with emcee; saves to HDF5 |
+| `srmc.loadSamplesFromDir(...)` | Load and flatten samples from result folder |
+| `srmc.inv_transform(theta_trans)` | Back-transform log-space samples |
+| `su.Posterior(samples, lnprobs, bins)` | Analyze and store posterior |
+| `post.best_raw_sample()` | Best-fit (highest log-prob) sample |
+| `post.get_mode()` / `get_mean()` / `get_ci()` | Summary statistics |
+| `post.plot_corner()` | Corner plot of marginal distributions |
+| `JointPosterior` | Combine posteriors across multiple MCMC runs |
+
+### Presets
+
+| Function | Purpose |
+|----------|---------|
+| `presets.get_preset_names()` | List all available organism/population presets |
+| `presets.getTheta(name)` | Return `[eta, beta, epsilon, xc]` for a preset |
+| `presets.getSim(name)` | Return a ready-to-use `SR_Hetro` simulation |
+| `presets.get_config_params(name)` | Return the simulation config (nsteps, t_end, …) |
+
+---
+
+## Built-in Organism Presets
+
+The following preset names are available. Pass them to `getTheta()` or `getSim()`.
+
+**Humans**
+- `combined_human_M`, `combined_human_F`
+- `Sweden_M_1910_hetro`, `Sweden_F_1910_hetro`, `Sweden_F_1910_homo`
+- `Denmark_M_1900_hetro`, `Denmark_M_1890_hetro`, `Denmark_F_1900_hetro`, `Denmark_F_1890_hetro`
+- `Denmark_M_1900_homo`, `Denmark_M_1890_homo`
+
+**Rodents & small mammals**
+- `mice_M`, `mice_F`
+- `Guiniea_pig_VC`
+
+**Companion animals**
+- `cats_vp_M`, `cats_vp_F`, `cats_BPH`
+- `Labradors_vetCompass`, `Staffy_vetCompass`, `Jack_Russell_vetCompass`, `German_Shepherd_vetCompass`
+
+**Invertebrates / model organisms**
+- `celegans`
+- `drosophila_853`, `drosophila_707`, `drosophila_441`, `drosophila_217`, `drosophila_136`, `drosophila_195`, `drosophila_105`, `drosophila_M22_25deg`
+- `Wdah_chronic`, `Wdah_chronic2`, `Wdah_control`
+- `yeast`, `ecoli`
+
+---
+
+## Data Format
+
+### Individual-level CSV
+
+```
+death dt,event
+45.3,1
+62.1,1
+80.0,0
+```
+
+- `death dt`: age at death or last observation (required)
+- `event`: 1 = death observed, 0 = censored (optional; defaults to all 1)
+
+Load with `dtds.dsFromFile('file.csv')` or `dtds.dsFromFile('file.csv', events_column='event')`.
+
+### Life-table data
+
+Use `Life_table(ages, n_alive)` when you have aggregate survival counts per age bin rather than individual records.
+
+---
+
+## Running Large MCMC Campaigns (HPC / Cluster)
+
+For large-scale studies across many species or conditions, SRtools supports an Excel-based configuration workflow designed for HPC job schedulers (e.g., LSF).
+
+The pattern:
+1. Define all runs as columns in `configurations.xlsx` (parameters, data files, MCMC settings)
+2. A `run_manager.py` script reads the Excel file and submits one cluster job per column
+3. Each job calls `run_file_mcmc_excel.py`, which reads its configuration via `config_lib`
+4. Results are saved as HDF5 files, then analysed in templated Jupyter notebooks
+
+```python
+from SRtools import config_lib as cl
+
+config = cl.read_excel_config('configurations.xlsx', 'my_run')
+cfg = cl.config_to_dict(config, mcmc_convert=True)
+
+eta   = float(cfg['eta'])
+nwalkers = int(cfg['nwalkers'])
+# ... etc.
+```
+
+See [`Extra_calibrations/README.md`](../Extra_calibrations/README.md) for a full worked example of this workflow.
+
+---
 
 ## Citation
 
-If you use SRtools in your research, please cite the relevant papers on the SR model of aging:
-- 1. Naveh Raz, Yifan Yang, Glen Pridham et al. A damage accumulation model reveals strategies of aging across species, 08 July 2025, PREPRINT (Version 1) available at Research Square [https://doi.org/10.21203/rs.3.rs-6946440/v1]
-- 2. Karin, O., Agrawal, A., Porat, Z. et al. Senescent cell turnover slows with age providing an explanation for the Gompertz law. Nat Commun 10, 5495 (2019). https://doi.org/10.1038/s41467-019-13192-4
+If you use SRtools in your research, please cite:
 
+1. Naveh Raz, Yifan Yang, Glen Pridham et al. *A damage accumulation model reveals strategies of aging across species*, Research Square 2025. [https://doi.org/10.21203/rs.3.rs-6946440/v1](https://doi.org/10.21203/rs.3.rs-6946440/v1)
+2. Karin O., Agrawal A., Porat Z. et al. *Senescent cell turnover slows with age providing an explanation for the Gompertz law.* Nat Commun 10, 5495 (2019). [https://doi.org/10.1038/s41467-019-13192-4](https://doi.org/10.1038/s41467-019-13192-4)
 
+---
+
+## Deprecated Modules
+
+The following modules are kept for backward compatibility but should not be used in new code:
+
+- `probability.py` — use `sr_mcmc.py` and `samples_utils.py` instead
+- `prior_gen.py` — use `sr_mcmc.py` instead
+- `life_table_old.py` — use `life_table.py` instead
+
+---
+
+## Web App
+
+An interactive Streamlit app for exploring the SR model lives in `app/`. It is **not** a dependency of the core package.
+
+```bash
+pip install srtools-aging[app]
+streamlit run app/streamlit_app.py
+```
+
+---
 
 ## License
 
@@ -247,7 +429,7 @@ MIT. See `LICENSE`.
 
 ## Contributing
 
-[Add contributing guidelines here]
+Bug reports and pull requests are welcome at [https://github.com/NavehRaz/SRtools](https://github.com/NavehRaz/SRtools). Please open an issue first to discuss significant changes.
 
 ## Contact
 

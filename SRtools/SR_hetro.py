@@ -17,12 +17,64 @@ After implementing your class, change sr_mcmc.model so it calls your class inste
 class SR_Hetro(srl.SR_lf):
     def __init__(self, eta, beta, kappa, epsilon, xc, npeople, nsteps, t_end, eta_var = 0, beta_var = 0, kappa_var =0, epsilon_var =0, xc_var =0, t_start=0, tscale='years', external_hazard=np.inf, time_step_multiplier=1, parallel=False, bandwidth=3, method='brownian_bridge'):
         """
-        If you want to add parameters to the __init__ method, you can do so here before the call to super().__init__.
-        
-        Parameters:
-            method (str): Method to use for death times calculation. Options:
-                - 'brownian_bridge': Euler method with Brownian bridge crossing detection (default)
-                - 'euler': Standard Euler method
+        Heterogeneous SR (Saturating Removal) model for mortality simulation.
+
+        Simulates a population of individuals whose internal damage variable X(t)
+        follows the SDE:  dX/dt = η·t − β·X/(X+κ) + √(2ε)·ξ.
+        Death occurs when X crosses the threshold xc.  Population heterogeneity is
+        modelled by drawing each individual's parameters from a normal distribution
+        around the population mean (controlled by the *_var arguments).
+
+        Inherits all survival-analysis methods from Dataset (getSurvival, plotSurvival,
+        getHazard, getMedianLifetime, etc.).
+
+        Parameters
+        ----------
+        eta : float
+            Damage accumulation rate coefficient (units: damage/time²).
+        beta : float
+            Maximum repair/removal capacity (units: damage/time).
+        kappa : float
+            Half-saturation constant for repair (same units as damage X).
+        epsilon : float
+            Noise amplitude controlling stochastic damage fluctuations.
+        xc : float
+            Critical damage threshold; an individual dies when X > xc.
+        npeople : int
+            Number of individuals to simulate.
+        nsteps : int
+            Number of discrete time steps in [t_start, t_end].
+        t_end : float
+            End of simulation (in tscale units, e.g. years).
+        eta_var : float, optional
+            Fractional std of individual variation in eta (0 = homogeneous). Default 0.
+        beta_var : float, optional
+            Fractional std of individual variation in beta. Default 0.
+        kappa_var : float, optional
+            Fractional std of individual variation in kappa. Default 0.
+        epsilon_var : float, optional
+            Fractional std of individual variation in epsilon. Default 0.
+        xc_var : float, optional
+            Fractional std of individual variation in xc. Default 0.
+        t_start : float, optional
+            Simulation start time. Default 0.
+        tscale : str, optional
+            Time unit label ('years', 'days', 'weeks', etc.). Default 'years'.
+        external_hazard : float, optional
+            Constant background hazard rate (additional death channel).
+            Default np.inf (no external mortality).
+        time_step_multiplier : int, optional
+            Sub-step factor for numerical accuracy; effective dt = dt/time_step_multiplier.
+            Default 1.
+        parallel : bool, optional
+            Use joblib parallelism for the simulation loop. Default False.
+        bandwidth : int, optional
+            Smoothing bandwidth for the Nelson-Aalen hazard estimate. Default 3.
+        method : str, optional
+            Simulation algorithm:
+            - ``'brownian_bridge'`` (default): Euler + Brownian bridge crossing test.
+              More accurate for threshold crossings at coarse time steps.
+            - ``'euler'``: Plain Euler scheme (faster, less accurate).
         """
         self.eta_var = eta_var
         self.beta_var = beta_var
@@ -34,6 +86,22 @@ class SR_Hetro(srl.SR_lf):
         super().__init__(eta, beta, kappa, epsilon, xc, npeople, nsteps, t_end, t_start, tscale, external_hazard, time_step_multiplier, parallel, bandwidth, method=method)
 
     def calc_death_times(self):
+        """
+        Simulate death times for the full population.
+
+        Runs the Euler (or Brownian-bridge) stochastic simulation for every
+        individual and records the time at which each one's damage X first
+        exceeds xc.  Called automatically during ``__init__``.
+
+        Override this method in subclasses to implement custom dynamics.
+
+        Returns
+        -------
+        death_times : ndarray, shape (npeople,)
+            Age at death (or at end of simulation if censored), in tscale units.
+        events : ndarray of int, shape (npeople,)
+            1 if the individual died (crossed xc), 0 if censored (reached t_end).
+        """
         s = len(self.t)
         dt = self.t[1]-self.t[0]
         sdt = np.sqrt(dt)
@@ -81,10 +149,57 @@ def getSrHetro(
     method='brownian_bridge',
     ):
     """
-    Optionally specify step_size. If step_size is given, nsteps and time_step_multiplier are ignored and recalculated so that
-    t_end/(nsteps*time_step_multiplier) = step_size. If nsteps*time_step_multiplier <= 6000, time_step_multiplier=1, else
-    increase time_step_multiplier until nsteps <= 6000. Both nsteps and time_step_multiplier are integers.
-    
+    Factory function for :class:`SR_Hetro` — the recommended way to create a simulation.
+
+    Parameters
+    ----------
+    theta : array-like, shape (4,)
+        ``[eta, beta, epsilon, xc]`` — SR model parameters:
+        eta (damage rate), beta (repair capacity), epsilon (noise), xc (death threshold).
+    n : int, optional
+        Population size. Default 25000.
+    nsteps : int, optional
+        Number of simulation time steps. Default 6000.  Ignored if *step_size* is given.
+    t_end : float, optional
+        End of simulation in years. Default 110.
+    external_hazard : float, optional
+        Constant background hazard (additional death channel). Default np.inf (none).
+    time_step_multiplier : int, optional
+        Sub-step factor; effective dt = t_end / (nsteps * time_step_multiplier).
+        Ignored if *step_size* is given. Default 1.
+    npeople : int, optional
+        Alias for *n*; overrides *n* if provided.
+    parallel : bool, optional
+        Use parallel computation. Default False.
+    eta_var, beta_var, epsilon_var, xc_var, kappa_var : float, optional
+        Fractional std of inter-individual variation in each parameter.
+        Set to 0 for a homogeneous population. Default: xc_var=0.2, others 0.
+    kappa : float, optional
+        Half-saturation constant for repair (fixed, not fitted). Default 0.5.
+    hetro : bool, optional
+        If False, forces all *_var values to 0 (homogeneous model). Default True.
+    bandwidth : int, optional
+        Hazard smoothing bandwidth. Default 3.
+    step_size : float, optional
+        Target simulation time step (years).  When provided, *nsteps* and
+        *time_step_multiplier* are recomputed so that
+        ``t_end / (nsteps * time_step_multiplier) ≈ step_size`` with
+        ``nsteps ≤ 6000``.
+    method : str, optional
+        Simulation algorithm: ``'brownian_bridge'`` (default) or ``'euler'``.
+
+    Returns
+    -------
+    SR_Hetro
+        Initialised simulation object.  Access results via
+        ``sim.getSurvival()``, ``sim.plotSurvival()``, ``sim.getMedianLifetime()``, etc.
+
+    Examples
+    --------
+    >>> theta = [0.05, 50, 50, 17]   # [eta, beta, epsilon, xc]
+    >>> sim = getSrHetro(theta, n=10000, t_end=110)
+    >>> sim.plotSurvival()
+
     Parameters:
         method (str): Method to use for death times calculation. Options:
             - 'brownian_bridge': Euler method with Brownian bridge crossing detection (default)
@@ -146,7 +261,51 @@ def getSrHetro(
 
 def model(theta , n, nsteps, t_end, dataSet, sim=None, metric = 'baysian', time_range=None, time_step_multiplier = 1,parallel = False, dt=1, set_params=None,debug=False, kwargs=None):
     """
-    The function accepts the parameters of the SR model and returns score according to the metric.
+    Evaluate SR model log-likelihood against observed mortality data.
+
+    This is the default ``model_func`` passed to :func:`~SRtools.sr_mcmc.getSampler`.
+    It simulates the SR model with the given parameters and returns the log-likelihood
+    of the data under that simulation.
+
+    Parameters
+    ----------
+    theta : array-like
+        Free parameters parsed by :func:`~SRtools.sr_mcmc.parse_theta`.
+        Typically ``[eta, beta, epsilon, xc]``; fixed parameters are supplied via
+        *set_params*.
+    n : int
+        Simulation population size.
+    nsteps : int
+        Number of simulation time steps.
+    t_end : float
+        Simulation end time (years).
+    dataSet : Dataset
+        Observed mortality data to fit.
+    sim : SR_Hetro, optional
+        Pre-computed simulation; if None it is created from *theta*. Default None.
+    metric : str, optional
+        Distance / likelihood metric passed to :func:`~SRtools.SRmodellib.distance`.
+        Default ``'baysian'``.
+    time_range : tuple, optional
+        ``(t_min, t_max)`` window for likelihood evaluation. Default None (full range).
+    time_step_multiplier : int, optional
+        Sub-step factor for numerical stability. Default 1.
+    parallel : bool, optional
+        Use parallel simulation. Default False.
+    dt : float, optional
+        Time bin width for likelihood calculation. Default 1.
+    set_params : dict, optional
+        Fixed parameters, e.g. ``{'external_hazard': 0.01}``. Default None.
+    debug : bool, optional
+        Print diagnostics when returning -inf. Default False.
+    kwargs : ignored
+
+    Returns
+    -------
+    float
+        Log-likelihood.  Returns ``-np.inf`` if:
+        - ``1/beta < time_step_size`` (numerical instability), or
+        - the likelihood evaluates to NaN.
     """
     if set_params is None:
         set_params = {}

@@ -141,11 +141,33 @@ class Dataset:
     
     def __init__(self, death_times,events, external_hazard = np.inf, bandwidth=3, properties = None, data_dt=1, event_is_censored=False):
         """
-        This function initializes the Dataset object.
-        properties (dict, optional): Dictionary of properties for the dataset.
-        data_dt (float, optional): The time step size for the data. Default is 1.
-        event_is_censored (bool, optional): If True, the events column is a censor column (1=censored, 0=event).
-                                            Events will be flipped when saving. Default is False.
+        Mortality dataset for survival analysis.
+
+        Stores individual death times and event indicators, then immediately
+        computes Kaplan-Meier survival and Nelson-Aalen hazard estimates.
+
+        Parameters
+        ----------
+        death_times : array-like
+            Age or time at death/last observation for each individual.
+        events : array-like
+            Event indicator per individual.  Convention (unless *event_is_censored*
+            is True): ``1`` = death observed, ``0`` = censored (lost to follow-up
+            or study end).  Must be the same length as *death_times*.
+        external_hazard : float, optional
+            Constant background hazard from an external source (e.g. predation).
+            Default ``np.inf`` (no external mortality).
+        bandwidth : int, optional
+            Smoothing bandwidth for the Nelson-Aalen hazard estimate. Default 3.
+        properties : dict, optional
+            Per-individual metadata as ``{column_name: array}``.  Example:
+            ``{'genotype': np.array(['WT', 'mut', 'WT', ...])``.
+        data_dt : float, optional
+            Sampling resolution of the input data (time units per bin). Default 1.
+        event_is_censored : bool, optional
+            If True, the *events* array uses the opposite convention
+            (``1`` = censored, ``0`` = death); values are flipped internally.
+            Default False.
         """
         self.death_times = death_times
         self.t_end = np.max(death_times)
@@ -1017,19 +1039,38 @@ class Dataset:
     
     def getHazard(self):
         """
-        This function returns the hazard function for the yeast dataset.
+        Return the smoothed instantaneous hazard function h(t).
+
+        h(t) is the instantaneous mortality rate — the probability of dying
+        in the next small time interval given survival to time t.  Estimated
+        via the Nelson-Aalen method and smoothed with bandwidth *self.bandwidth*.
+
+        Returns
+        -------
+        tuple of (ndarray, ndarray)
+            ``(t, h)`` where *t* are time points and *h* are hazard values ≥ 0.
         """
         return self.hazard
     
     def sample(self, n):
         """
-        This function samples n death times from the yeast dataset and returns a "sampled" cohort.
-        
-        Parameters:
-            n (int): The number of samples to draw.
-        
-        Returns:
-            sampled_dataset (Dataset): The sampled dataset.
+        Bootstrap-resample the dataset.
+
+        Draws *n* individuals **with replacement** to create a new Dataset.
+        Repeated calls produce independent bootstrap replicates, useful for
+        constructing confidence intervals on any derived statistic.
+
+        Parameters
+        ----------
+        n : int
+            Number of individuals to draw.  Typically ``len(ds.death_times)``
+            for a standard bootstrap resample.
+
+        Returns
+        -------
+        Dataset
+            New dataset with resampled death_times, events, and properties.
+            Inherits *external_hazard* and *bandwidth* from the parent.
         """
         indices = np.random.choice(range(self.n), n, replace=True)
         s_detimes = self.death_times[indices]
@@ -1955,14 +1996,56 @@ class DatasetCollection:
 
 def dsFromFile(path, external_hazard = np.inf, properties = None,sheet = None, death_times_column = None, events_column = None,bandwidth = 3, event_is_censored=False,excel_has_header=None,remove_nan_rows = False):
     """
-    This function loads the dataset from a file.
-    Parameters:
-        path (str): Path to the file.
-        external_hazard (float, optional): External hazard rate. Default is np.inf.
-        properties (list, optional): List of columns to be loaded from the file as properties.
-        event_is_censored (bool, optional): If True, the events column is a censor column (1=censored, 0=event).
-                                            Events will be flipped when loading. Default is False.
+    Load a mortality dataset from a CSV or Excel file.
 
+    Parameters
+    ----------
+    path : str
+        File path.  Supported formats: ``.csv`` and ``.xlsx``.
+    external_hazard : float, optional
+        Constant background hazard rate.  Default ``np.inf`` (none).
+    properties : list of str, optional
+        Column names to import as per-individual metadata.  Example:
+        ``['genotype', 'diet']``.  Columns absent from the file are silently
+        skipped.  Default None.
+    sheet : str or int, optional
+        Sheet name or index for Excel files.  Required when the workbook has
+        multiple sheets; ignored for CSV.  Default None (first sheet).
+    death_times_column : str, optional
+        Explicit column name for death/observation times.  If None, the
+        function searches for ``'death times'`` or ``'death_times'``.
+    events_column : str, optional
+        Explicit column name for the event indicator.  If None, searches for
+        ``'events'``, ``'event'``, or ``'censor'``.
+    bandwidth : int, optional
+        Hazard smoothing bandwidth.  Default 3.
+    event_is_censored : bool, optional
+        If True, the events column uses ``1`` = censored, ``0`` = death;
+        values are flipped internally.  Default False.
+    excel_has_header : int or None, optional
+        Row number to use as column headers when reading Excel (passed to
+        ``pd.read_excel(header=...)``).  Default None (pandas auto-detects).
+    remove_nan_rows : bool, optional
+        Drop any row containing NaN before building the Dataset.  Default False.
+
+    Returns
+    -------
+    Dataset
+        Loaded dataset with survival and hazard pre-computed.
+
+    Raises
+    ------
+    ValueError
+        If the death-times column is not found, or if an Excel file has
+        multiple sheets and *sheet* is not specified.
+
+    Examples
+    --------
+    >>> ds = dsFromFile('cohort.csv')
+    >>> ds = dsFromFile('study.xlsx', sheet='Trial_1',
+    ...                 death_times_column='age', events_column='died')
+    >>> ds = dsFromFile('study.csv', properties=['genotype', 'sex'],
+    ...                 event_is_censored=True)
     """
     if sheet is not None and isinstance(path, pd.ExcelFile):
         format = 'xlsx'

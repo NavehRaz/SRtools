@@ -206,26 +206,53 @@ def getKarinTheta():
     
 def getTheta(preset_name="humans_M_combined",type = "mode_overall",time_unit='auto',ExtH =False, file=None, folder=None):
     """
-    This function is used to get the theta values for a given organism (preset_name).
-    The preset can originate from different file types: 
-     - mode_overall (default): Overall mode of of posterior distribution
-     - mode: Mode of marginal posterior distribution of each parameter
-     - max_likelihood: parameters from run with highest likelihood
-    
-    Time unit conversion:
-     - 'auto': Automatically determine based on preset (humans/dogs/cats->years, ecoli->hours, yeast->generations)
-     - 'days': No conversion (original units)
-     - 'years': Convert from days to years (s=365)
-     - 'hours': Convert from days to hours (s=1/24)
-     - 'generations': Convert from days to generations (s=3/24)
-    
-    Parameter scaling: eta->eta*s^2, beta->beta*s, epsilon->epsilon*s, xc->xc
-    
-    If file is provided, it will be used directly without checking aliases or current_dir.
+    Return calibrated SR parameters for a preset organism or population.
 
-    folder : str or None
-        Preset directory. None -> default Preset_values/. 'smurf' -> extras/Preset_values/smurfs.
-        Can also be an absolute or relative path.
+    Parameters are loaded from pre-computed MCMC posterior summaries and
+    optionally converted to the requested time unit.
+
+    Parameters
+    ----------
+    preset_name : str, optional
+        Name of the organism/population preset.  Default ``'humans_M_combined'``.
+        Case-insensitive aliases are supported (e.g. ``'mice'``, ``'flies'``,
+        ``'humans'``).  See :func:`get_preset_names` for the full list.
+    type : str, optional
+        Which posterior summary to use:
+
+        - ``'mode_overall'`` (default) — mode of the joint posterior.
+        - ``'mode'`` — marginal mode of each parameter independently.
+        - ``'max_likelihood'`` — parameters from the highest-likelihood run.
+    time_unit : str, optional
+        Output time unit.  ``'auto'`` (default) selects the natural unit for
+        the preset (years for mammals, hours for *E. coli*, generations for
+        yeast).  Other options: ``'days'``, ``'years'``, ``'weeks'``,
+        ``'hours'``, ``'generations'``.
+
+        Scaling applied to convert from the stored unit:
+        ``eta → eta·s²``, ``beta → beta·s``, ``epsilon → epsilon·s``,
+        ``xc`` is unchanged.
+    ExtH : bool, optional
+        If True, append the external-hazard rate as a 5th element.
+        Default False.
+    file : str, optional
+        Load from this CSV file directly, bypassing preset lookup.
+    folder : str or None, optional
+        Preset directory.  None → default ``Preset_values/``.
+        ``'smurf'`` → ``extras/Preset_values/smurfs/``.
+        Also accepts an absolute or relative path.
+
+    Returns
+    -------
+    ndarray, shape (4,) or (5,)
+        ``[eta, beta, epsilon, xc]``, or ``[eta, beta, epsilon, xc, external_hazard]``
+        when ``ExtH=True``.
+
+    Examples
+    --------
+    >>> from SRtools import presets
+    >>> theta = presets.getTheta('combined_human_M')
+    >>> theta_mle = presets.getTheta('mice_F', type='max_likelihood')
     """
     
     # If file is provided, use it directly
@@ -570,10 +597,28 @@ def getParams(
 
 def get_preset_names(type = "mode_overall", folder=None):
     """
-    This function is used to get the names of all presets.
+    List all available preset organism/population names.
 
-    folder : str or None
-        Preset directory. None -> default Preset_values/. 'smurf' -> extras/Preset_values/smurfs.
+    Parameters
+    ----------
+    type : str, optional
+        Which summary CSV to query:
+        ``'mode_overall'`` (default), ``'mode'``, or ``'max_likelihood'``.
+    folder : str or None, optional
+        Preset directory.  None → default ``Preset_values/``.
+        ``'smurf'`` → ``extras/Preset_values/smurfs/``.
+
+    Returns
+    -------
+    list of str
+        All column names in the requested CSV, each representing one
+        calibrated organism or population
+        (e.g. ``'combined_human_M'``, ``'mice_F'``, ``'celegans'``).
+
+    Examples
+    --------
+    >>> from SRtools import presets
+    >>> print(presets.get_preset_names())
     """
     if type == "mode_overall":
         csv_filename = "summery_mode_overall.csv"
@@ -726,11 +771,57 @@ def getSim(
     folder=None,
 ):
     """
-    Returns an srh.SR_Hetro object for the given preset, using the correct theta and configuration parameters.
-    Optionally override theta, nsteps, npeople, t_end, or time_step_multiplier.
+    Create a ready-to-use SR simulation for a preset organism.
 
-    folder : str or None
-        Preset directory. None -> default Preset_values/. 'smurf' -> extras/Preset_values/smurfs.
+    Combines :func:`getTheta` and :func:`get_config_params` to return a
+    fully configured :class:`~SRtools.SR_hetro.SR_Hetro` simulation object.
+    Any simulation parameter can be overridden via keyword arguments.
+
+    Parameters
+    ----------
+    preset_name : str, optional
+        Organism/population preset.  Default ``'humans_M_combined'``.
+        See :func:`get_preset_names` for available names.
+    type : str, optional
+        Posterior summary: ``'mode_overall'`` (default), ``'mode'``, or
+        ``'max_likelihood'``.
+    time_unit : str, optional
+        Time unit for parameters and simulation.  ``'auto'`` (default)
+        selects the natural unit for the preset.
+    config_params : list of str, optional
+        Config fields to load from the preset CSV.  Default:
+        ``['nsteps', 'time_step_multiplier', 'npeople', 't_end', 'hetro']``.
+    theta : array-like, optional
+        Override the preset theta vector; if None, loaded from the preset.
+    nsteps : int, optional
+        Override number of simulation time steps.
+    npeople : int, optional
+        Override population size.
+    t_end : float, optional
+        Override simulation end time.
+    time_step_multiplier : int, optional
+        Override sub-step multiplier.
+    method : str, optional
+        Simulation algorithm: ``'brownian_bridge'`` (default) or ``'euler'``.
+    parallel : bool, optional
+        Use parallel computation.  Default False.
+    ExtH : bool, optional
+        Include external hazard in theta.  Default True.
+    folder : str or None, optional
+        Preset directory (see :func:`getTheta`).
+
+    Returns
+    -------
+    SR_Hetro
+        Initialised simulation.  Access results via ``sim.getSurvival()``,
+        ``sim.plotSurvival()``, ``sim.getMedianLifetime()``, etc.
+
+    Examples
+    --------
+    >>> from SRtools import presets
+    >>> sim = presets.getSim('combined_human_M')
+    >>> sim.plotSurvival()
+    >>> print(sim.getMedianLifetime())
     """
     # Get theta for the preset unless overridden
     if theta is None:

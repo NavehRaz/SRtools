@@ -493,8 +493,54 @@ class Posterior:
         return X, Y
 
     def corner_plot(self, ax=None, colors=None, labels=None, truths=None, scale ='log',show_ln_prob = False, stats = ['mean','std','percentiles', 'mode'],percentiles = [16, 50, 95],plot_type = 'contourf', prior_lnprobs=0,smooth_mode=False, show_colorbar=False, **kwargs):
-            
-            n_features = self.unique_samples.shape[1]
+        """
+        Plot the marginal 1-D and joint 2-D posterior distributions (corner/triangle plot).
+
+        Diagonal panels show the 1-D marginal posterior for each parameter.
+        Off-diagonal panels show 2-D joint distributions between pairs of parameters.
+
+        Parameters
+        ----------
+        ax : ndarray of Axes, optional
+            Pre-existing axes array of shape ``(n_features, n_features)``.
+            If None, a new figure is created.
+        colors : list of str, optional
+            One colour per parameter for the 1-D histograms.
+        labels : list of str, optional
+            Axis labels for each parameter (e.g. ``[r'$\\eta$', r'$\\beta$']``).
+        truths : array-like, optional
+            Reference (e.g. ground-truth or preset) values drawn as vertical/horizontal
+            lines.  Useful for validating inference on simulated data.
+        scale : str, optional
+            X-axis scale for 1-D panels: ``'log'`` (default) or ``'linear'``.
+        show_ln_prob : bool, optional
+            If True, plot log-probability on the y-axis of 1-D panels instead of
+            probability. Default False.
+        stats : list of str, optional
+            Annotations to overlay on 1-D panels.  Options:
+            ``'mean'``, ``'std'``, ``'percentiles'``, ``'mode'``.
+        percentiles : list of int, optional
+            Credible-interval levels to shade, e.g. ``[16, 50, 95]`` for
+            68 % and 90 % credible intervals.  Default ``[16, 50, 95]``.
+        plot_type : str, optional
+            2-D rendering style: ``'contourf'`` (filled contours, default) or
+            ``'pcolormesh'`` (pixel grid).
+        prior_lnprobs : ndarray or float, optional
+            Prior log-probabilities for ratio-based colouring. Default 0.
+        smooth_mode : bool, optional
+            Use a smoothed mode estimate for noisy posteriors. Default False.
+        show_colorbar : bool, optional
+            Add a colour bar to 2-D panels. Default False.
+        **kwargs
+            Additional keyword arguments forwarded to the 2-D plot call
+            (e.g. ``cmap='viridis'``).
+
+        Returns
+        -------
+        ax : ndarray of Axes
+            The axes array of shape ``(n_features, n_features)``.
+        """
+        n_features = self.unique_samples.shape[1]
             
             if ax is None:
                 fig, ax = plt.subplots(n_features, n_features, figsize=(5 * n_features, 5 * n_features))
@@ -965,10 +1011,24 @@ class Posterior:
     
     def get_mode(self, idx=False):
         """
-        Get the mode of the posterior distribution.
-        returns:
-        mode: np.ndarray
-            The mode of the posterior distribution.
+        Return the parameter set at the peak of the binned posterior.
+
+        The mode is the entry in *unique_samples* with the highest discretised
+        posterior probability.  Log-scaled features are back-transformed to
+        the original parameter space before returning.
+
+        Parameters
+        ----------
+        idx : bool, optional
+            If True, also return the integer index of the mode in
+            *unique_samples*.  Default False.
+
+        Returns
+        -------
+        mode : ndarray
+            Best-fit parameter values (shape: ``n_features``).
+        mode_index : int
+            Index into *unique_samples*.  Only returned when ``idx=True``.
         """
         mode_index = np.argmax(self.posterior)
         mode = self.unique_samples[mode_index].copy()
@@ -1064,7 +1124,20 @@ class Posterior:
     
     def best_raw_sample(self):
         """
-        Get the best sample in the posterior distribution.
+        Return the raw MCMC sample with the highest log-probability.
+
+        Unlike :meth:`get_mode`, which operates on the discretised posterior,
+        this returns the single best walker position from the raw chain —
+        useful as a point estimate or as a starting point for further
+        simulation.
+
+        Returns
+        -------
+        ndarray or None
+            Parameter vector (in the transformed space used during sampling).
+            Use :func:`~SRtools.sr_mcmc.inv_transform` to convert back to
+            physical SR parameters.  Returns None (with a warning) if the
+            raw samples were not stored.
         """
         if self.samples is None or self.lnprobs is None:
             print("WARNING: self.samples or self.lnprobs are not set.")

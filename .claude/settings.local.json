@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(grep -rh \"cl\\\\.\" \"/Users/navehr/Dropbox/naveh/weizmann/uri alon/aging/code_4\" --include=\"*.py\" | sort -u)",
+      "Read(//Users/navehr/Dropbox/naveh/weizmann/uri alon/aging/code_4/**)"
+    ]
+  }
+}
