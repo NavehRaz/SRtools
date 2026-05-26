@@ -542,52 +542,52 @@ class Posterior:
         """
         n_features = self.unique_samples.shape[1]
             
-            if ax is None:
-                fig, ax = plt.subplots(n_features, n_features, figsize=(5 * n_features, 5 * n_features))
-                fig.tight_layout(pad=3.0)
-            diagonal_axes = [ax[i,i] for i in range(n_features)]
-            # Marginalize prior_lnprobs for 1D plots
-            
-            for i, ax1d in enumerate(diagonal_axes):
-                _=self.plot_1d_posteriors(ax=ax1d,features=[i], colors=colors, labels=labels, truths=truths, scale=scale, show_ln_prob=show_ln_prob, stats=stats, percentiles=percentiles)
-            if self.progress_bar:
-                iterator = tqdm(range(n_features), desc="Creating corner plot")
-            else:
-                iterator = range(n_features)
-            for i in iterator:
-                for j in range(i):
-                    # Marginalize prior_lnprobs for 2D plots
-                    _=self.plot_2d_posteriors(features=[j,i], ax=ax[i,j], labels=labels, truths=truths, scale=scale, show_ln_prob=show_ln_prob, stats=stats, percentiles=percentiles, plot_type=plot_type, **kwargs)
-                for j in range(i+1, n_features):
-                    ax[i,j].axis('off')
-            
-            # Add colorbar if requested
-            if show_colorbar and plot_type in ['contourf', 'pcolormesh']:
-                # Get the last 2D plot to use for colorbar
-                last_plot = ax[1,0].collections[0] if plot_type == 'contourf' else ax[1,0].collections[0]
-                cbar_ax = ax[0,0].figure.add_axes([0.92, 0.15, 0.02, 0.7])
-                cbar = plt.colorbar(last_plot, cax=cbar_ax)
-                cbar.set_label('Probability Density' if not show_ln_prob else 'Log Probability Density', fontsize=14)
+        if ax is None:
+            fig, ax = plt.subplots(n_features, n_features, figsize=(5 * n_features, 5 * n_features))
+            fig.tight_layout(pad=3.0)
+        diagonal_axes = [ax[i,i] for i in range(n_features)]
+        # Marginalize prior_lnprobs for 1D plots
+        
+        for i, ax1d in enumerate(diagonal_axes):
+            _=self.plot_1d_posteriors(ax=ax1d,features=[i], colors=colors, labels=labels, truths=truths, scale=scale, show_ln_prob=show_ln_prob, stats=stats, percentiles=percentiles)
+        if self.progress_bar:
+            iterator = tqdm(range(n_features), desc="Creating corner plot")
+        else:
+            iterator = range(n_features)
+        for i in iterator:
+            for j in range(i):
+                # Marginalize prior_lnprobs for 2D plots
+                _=self.plot_2d_posteriors(features=[j,i], ax=ax[i,j], labels=labels, truths=truths, scale=scale, show_ln_prob=show_ln_prob, stats=stats, percentiles=percentiles, plot_type=plot_type, **kwargs)
+            for j in range(i+1, n_features):
+                ax[i,j].axis('off')
+        
+        # Add colorbar if requested
+        if show_colorbar and plot_type in ['contourf', 'pcolormesh']:
+            # Get the last 2D plot to use for colorbar
+            last_plot = ax[1,0].collections[0] if plot_type == 'contourf' else ax[1,0].collections[0]
+            cbar_ax = ax[0,0].figure.add_axes([0.92, 0.15, 0.02, 0.7])
+            cbar = plt.colorbar(last_plot, cax=cbar_ax)
+            cbar.set_label('Probability Density' if not show_ln_prob else 'Log Probability Density', fontsize=14)
 
-            # Only show labels on outer panels and make them bigger
-            for i in range(n_features):
-                for j in range(n_features):
-                    if i < n_features-1:  # Not bottom row
-                        ax[i,j].set_xlabel('')
-                    if j > 0:  # Not leftmost column
-                        ax[i,j].set_ylabel('')
-                    if i == n_features-1 and labels is not None:  # Bottom row
-                        ax[i,j].set_xlabel(labels[j], fontsize=14)
-                    if j == 0 and labels is not None:  # Leftmost column
-                        ax[i,j].set_ylabel(labels[i], fontsize=14)
-                    # Make tick labels bigger
-                    ax[i,j].tick_params(axis='both', which='major', labelsize=12)
-            
-            # Add main title
-            if labels is not None:
-                ax[0,0].figure.suptitle('2D Marginalized Posterior', fontsize=20, y=1.02)
-            
-            return ax
+        # Only show labels on outer panels and make them bigger
+        for i in range(n_features):
+            for j in range(n_features):
+                if i < n_features-1:  # Not bottom row
+                    ax[i,j].set_xlabel('')
+                if j > 0:  # Not leftmost column
+                    ax[i,j].set_ylabel('')
+                if i == n_features-1 and labels is not None:  # Bottom row
+                    ax[i,j].set_xlabel(labels[j], fontsize=14)
+                if j == 0 and labels is not None:  # Leftmost column
+                    ax[i,j].set_ylabel(labels[i], fontsize=14)
+                # Make tick labels bigger
+                ax[i,j].tick_params(axis='both', which='major', labelsize=12)
+        
+        # Add main title
+        if labels is not None:
+            ax[0,0].figure.suptitle('2D Marginalized Posterior', fontsize=20, y=1.02)
+        
+        return ax
 
 
     def create_posterior_df(self,transforms = ['default'],labels = None, ds=None,ds_labels=None, kappa=0.5, filepath = None, smooth_mode = False, rescale=None, set_xc=False, truth=None, extra_param_labels=None):
