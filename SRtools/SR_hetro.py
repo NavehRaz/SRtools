@@ -472,7 +472,7 @@ def death_times_euler_brownian_bridge(s, dt, t, eta0, eta_var, beta0, beta_var, 
                         # Brownian bridge crossing probability
                         # P = exp(-2 * (xc - x) * (xc - x_new) / (2 * epsilon * ndt))
                         var = 2.0 * epsilon * ndt
-                        if var > 0.0:
+                        if var > 0.0 and 2.0 * dx1 * dx2 < 30.0 * var:
                             p_cross = np.exp(-2.0 * dx1 * dx2 / var)
                             if np.random.rand() < p_cross:
                                 x = xc

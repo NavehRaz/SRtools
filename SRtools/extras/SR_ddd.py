@@ -1513,7 +1513,7 @@ def death_times_ddd_brownian_bridge(s, dt, t, eta0, eta_var, beta0, beta_var, ka
                     dx2 = xc - x_new
                     if dx1 > 0.0 and dx2 > 0.0:
                         var = 2.0 * epsilon * ndt
-                        if var > 0.0:
+                        if var > 0.0 and 2.0 * dx1 * dx2 < 30.0 * var:
                             p_cross = np.exp(-2.0 * dx1 * dx2 / var)
                             if np.random.rand() < p_cross:
                                 x = xc
@@ -1522,14 +1522,14 @@ def death_times_ddd_brownian_bridge(s, dt, t, eta0, eta_var, beta0, beta_var, ka
                                     crossed_disease = True
                                     disease_time = current_time
                                 break
-                
+
                 # Brownian bridge crossing test for disease (if not yet sick)
                 if not crossed_disease and (x < xd) and (x_new < xd) and (x > 0):
                     dx1 = xd - x
                     dx2 = xd - x_new
                     if dx1 > 0.0 and dx2 > 0.0:
                         var = 2.0 * epsilon * ndt
-                        if var > 0.0:
+                        if var > 0.0 and 2.0 * dx1 * dx2 < 30.0 * var:
                             p_cross = np.exp(-2.0 * dx1 * dx2 / var)
                             if np.random.rand() < p_cross:
                                 crossed_disease = True

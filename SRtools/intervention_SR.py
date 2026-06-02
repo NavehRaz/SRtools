@@ -147,10 +147,10 @@ class intervention_SR(srh.SR_Hetro):
                 self.eta_effect, self.eta_duration[0], self.eta_duration[1], self.eta_time_dep_value,
                 self.epsilon_effect, self.epsilon_duration[0], self.epsilon_duration[1], self.epsilon_time_dep_value,
                 self.Xc_effect, self.Xc_duration[0], self.Xc_duration[1], self.Xc_time_dep_value,
+                self.kappa_effect, self.kappa_duration[0], self.kappa_duration[1], self.kappa_time_dep_value,
                 self.A_exit_alpha, self.A_exit_tau, self.beta_exit_alpha, self.beta_exit_tau,
                 self.eta_exit_alpha, self.eta_exit_tau, self.epsilon_exit_alpha, self.epsilon_exit_tau,
                 self.Xc_exit_alpha, self.Xc_exit_tau,
-                self.kappa_effect, self.kappa_duration[0], self.kappa_duration[1], self.kappa_time_dep_value,
                 self.kappa_exit_alpha, self.kappa_exit_tau,
                 self.save_trajectory, traj_time_points)
 
@@ -321,30 +321,27 @@ def get_time_dependent_effect_fast(initial_effect, time_dep_value, current_time,
 
 
 @jit(nopython=jit_nopython)
-def get_exit_effect_fast(alpha, tau, current_time, duration_stop, intervention_effect=0.0):
+def get_exit_effect_fast(alpha, tau, current_time, duration_stop):
     """
     Calculate exit effect after intervention stops.
-    After the intervention stops, there is an opposite effect whose amplitude
-    is alpha * intervention_effect (proportional to the intervention size),
-    decaying to 0 with time constant tau.
+    After the intervention stops, there is an opposite effect of size alpha
+    that decays to baseline with time constant tau.
 
     Parameters:
     -----------
     alpha : float
-        Exit amplitude as a fraction of the intervention size (unitless)
+        Size of the opposite effect (positive value, will be negated)
     tau : float
         Time constant for exponential decay
     current_time : float
         Current simulation time
     duration_stop : float
         Time when intervention stops
-    intervention_effect : float
-        Size of the original intervention (e.g. Xc_effect); exit scales with this
 
     Returns:
     --------
     float
-        Exit effect value (decays to 0)
+        Exit effect value (negative, decays to 0)
     """
     # Only apply exit effect after intervention stops
     if current_time <= duration_stop:
@@ -352,13 +349,13 @@ def get_exit_effect_fast(alpha, tau, current_time, duration_stop, intervention_e
 
     # If tau is 0 or invalid, no decay (constant effect)
     if tau <= 0.0:
-        return -alpha * intervention_effect
+        return -alpha
 
     # Calculate time since intervention stopped
     time_since_stop = current_time - duration_stop
 
-    # Exponential decay scaled by intervention size
-    exit_effect = -alpha * intervention_effect * np.exp(-time_since_stop / tau)
+    # Exponential decay: -alpha * exp(-time_since_stop / tau)
+    exit_effect = -alpha * np.exp(-time_since_stop / tau)
 
     return exit_effect
 
@@ -395,8 +392,8 @@ def get_combined_effect_fast(initial_effect, time_dep_value, exit_alpha, exit_ta
     intervention_eff = get_time_dependent_effect_fast(initial_effect, time_dep_value, 
                                                         current_time, duration_start, duration_stop)
     
-    # Get exit effect after intervention stops (scaled by intervention size)
-    exit_eff = get_exit_effect_fast(exit_alpha, exit_tau, current_time, duration_stop, initial_effect)
+    # Get exit effect after intervention stops
+    exit_eff = get_exit_effect_fast(exit_alpha, exit_tau, current_time, duration_stop)
     
     # Combine both effects
     return intervention_eff + exit_eff
@@ -651,7 +648,7 @@ def death_times_euler_brownian_bridge_fast(s, dt, t, eta0, eta_var, beta0, beta_
                     dx2 = current_xc - x_new
                     if dx1 > 0.0 and dx2 > 0.0:
                         var = 2.0 * epsilon * ndt
-                        if var > 0.0:
+                        if var > 0.0 and 2.0 * dx1 * dx2 < 30.0 * var:
                             p_cross = np.exp(-2.0 * dx1 * dx2 / var)
                             if np.random.rand() < p_cross:
                                 x = current_xc
@@ -775,7 +772,7 @@ def death_times_euler_brownian_bridge_exit_fast(s, dt, t, eta0, eta_var, beta0, 
                     dx2 = current_xc - x_new
                     if dx1 > 0.0 and dx2 > 0.0:
                         var = 2.0 * current_epsilon * ndt
-                        if var > 0.0:
+                        if var > 0.0 and 2.0 * dx1 * dx2 < 30.0 * var:
                             p_cross = np.exp(-2.0 * dx1 * dx2 / var)
                             if np.random.rand() < p_cross:
                                 x = current_xc
@@ -1345,7 +1342,7 @@ def death_times_euler_brownian_bridge_periodic_fast(
                     dx2 = current_xc - x_new
                     if dx1 > 0.0 and dx2 > 0.0:
                         var = 2.0 * epsilon * ndt
-                        if var > 0.0:
+                        if var > 0.0 and 2.0 * dx1 * dx2 < 30.0 * var:
                             p_cross = np.exp(-2.0 * dx1 * dx2 / var)
                             if np.random.rand() < p_cross:
                                 x = current_xc
@@ -1460,7 +1457,7 @@ def death_times_euler_brownian_bridge_periodic_exit_fast(
                     dx2 = current_xc - x_new
                     if dx1 > 0.0 and dx2 > 0.0:
                         var = 2.0 * epsilon * ndt
-                        if var > 0.0:
+                        if var > 0.0 and 2.0 * dx1 * dx2 < 30.0 * var:
                             p_cross = np.exp(-2.0 * dx1 * dx2 / var)
                             if np.random.rand() < p_cross:
                                 x = current_xc
