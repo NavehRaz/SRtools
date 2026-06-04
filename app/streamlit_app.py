@@ -50,6 +50,11 @@ SWEEP_PARAMETER_LABELS = {
     "xc": "xc",
     "external_hazard_exponent": "external hazard exponent",
 }
+FRIENDLY_HUMAN_PRESETS = {
+    "core:Denmark_M_1900_hetro": "Human M",
+    "core:Denmark_F_1900_hetro": "Human F",
+}
+FRIENDLY_HIDDEN_PRESETS = {"core:combined_human_M", "core:combined_human_F"}
 STYLE_CONFIGS = {
     "Friendly": {
         "template": "plotly_white",
@@ -184,6 +189,32 @@ def clamp(value: float, min_value: float, max_value: float) -> float:
 
 def object_time_unit(obj: PlotObject) -> str:
     return normalize_time_unit(getattr(obj, "time_unit", "days"), default="days")
+
+
+def friendly_shortlist_active(visualization_style: str, use_shortlist: bool) -> bool:
+    return visualization_style == "Friendly" and use_shortlist
+
+
+def visible_presets_for_mode(preset_catalog: list[dict], visualization_style: str, use_shortlist: bool) -> list[dict]:
+    friendly_shortlist = friendly_shortlist_active(visualization_style, use_shortlist)
+    visible = []
+    for index, preset in enumerate(preset_catalog):
+        if use_shortlist and not preset["shortlist"]:
+            continue
+        if friendly_shortlist and preset["id"] in FRIENDLY_HIDDEN_PRESETS:
+            continue
+        visible.append({**preset, "_catalog_index": index})
+    if friendly_shortlist:
+        visible.sort(key=lambda preset: ({"core:Denmark_M_1900_hetro": 0, "core:Denmark_F_1900_hetro": 1}.get(preset["id"], 2), preset["_catalog_index"]))
+    return visible
+
+
+def preset_display_name(preset: dict, visualization_style: str, use_shortlist: bool) -> str:
+    if friendly_shortlist_active(visualization_style, use_shortlist) and preset["id"] in FRIENDLY_HUMAN_PRESETS:
+        return FRIENDLY_HUMAN_PRESETS[preset["id"]]
+    if use_shortlist:
+        return preset["alias"]
+    return f"{preset['alias']} ({preset['source']})"
 
 
 @st.cache_data(show_spinner=False)
@@ -798,6 +829,62 @@ def draft_params_from_controls() -> dict:
     return params
 
 
+def render_model_parameter_controls() -> None:
+    for parameter in CORE_PARAMETER_SPECS:
+        render_log_parameter_control(parameter)
+
+
+def render_external_hazard_controls() -> None:
+    eh_left, eh_right = st.columns([0.62, 0.38])
+    eh_left.slider(
+        "external hazard exponent",
+        min_value=0.0,
+        max_value=60.0,
+        step=0.1,
+        key="external_hazard_slider",
+        on_change=sync_external_exact_from_slider,
+        help="The model uses an external hazard rate of exp(-x). Enter 0 for the maximum rate; larger values weaken it.",
+    )
+    eh_right.number_input(
+        "external exact",
+        min_value=0.0,
+        max_value=60.0,
+        format="%.8g",
+        key="external_hazard_exact",
+        on_change=sync_external_slider_from_exact,
+    )
+    st.caption(f"External hazard rate = exp(-x) = {display_external_hazard(st.session_state['external_hazard_exact'])}")
+
+
+def render_heterogeneity_controls() -> None:
+    st.checkbox("Enable heterogeneity", key="draft_hetro")
+    h1, h2 = st.columns(2)
+    h1.number_input("eta_var", min_value=0.0, format="%.4g", key="draft_eta_var")
+    h2.number_input("beta_var", min_value=0.0, format="%.4g", key="draft_beta_var")
+    h1.number_input("kappa_var", min_value=0.0, format="%.4g", key="draft_kappa_var")
+    h2.number_input("epsilon_var", min_value=0.0, format="%.4g", key="draft_epsilon_var")
+    h1.number_input("xc_var", min_value=0.0, format="%.4g", key="draft_xc_var")
+
+
+def render_runtime_controls(show_sample_size: bool = True) -> None:
+    r1, r2 = st.columns(2)
+    if show_sample_size:
+        r1.number_input("sample size", min_value=100, max_value=25_000, step=100, key="draft_npeople")
+    max_nsteps = max(100, MAX_SIMULATION_STEPS_TIMES_SAMPLE_SIZE // int(st.session_state["draft_npeople"]))
+    if st.session_state["draft_nsteps"] > max_nsteps:
+        st.session_state["draft_nsteps"] = max_nsteps
+    r2.number_input("steps", min_value=1, max_value=max_nsteps, step=1, key="draft_nsteps")
+    r1.number_input("end time", min_value=1, max_value=250, step=1, key="draft_t_end")
+    r2.number_input(
+        "step multiplier",
+        min_value=1,
+        max_value=MAX_TIME_STEP_MULTIPLIER,
+        step=1,
+        key="draft_time_step_multiplier",
+    )
+    st.selectbox("method", ["brownian_bridge", "euler"], key="draft_method")
+
+
 st.set_page_config(page_title="SRtools Explorer", layout="wide")
 st.title("SRtools Explorer")
 st.markdown(
@@ -835,16 +922,15 @@ with st.sidebar:
 
     st.subheader("Preset")
     use_shortlist = st.checkbox("Shortlist", value=True)
-    visible_presets = [preset for preset in preset_catalog if preset["shortlist"] or not use_shortlist]
+    visible_presets = visible_presets_for_mode(preset_catalog, visualization_style, use_shortlist)
     preset_id = st.selectbox(
         "Organism preset",
         [preset["id"] for preset in visible_presets],
         index=0,
-        format_func=lambda value: preset_by_id[value]["alias"]
-        if use_shortlist
-        else f"{preset_by_id[value]['alias']} ({preset_by_id[value]['source']})",
+        format_func=lambda value: preset_display_name(preset_by_id[value], visualization_style, use_shortlist),
     )
     selected_preset = preset_by_id[preset_id]
+    selected_preset_display = preset_display_name(selected_preset, visualization_style, use_shortlist)
     defaults = load_preset_defaults(selected_preset["preset_name"], selected_preset["source"], selected_preset["time_unit"])
     preset_draft = params_from_defaults(defaults, selected_preset["time_unit"])
 
@@ -852,10 +938,10 @@ with st.sidebar:
     if pending_draft_state is not None:
         set_draft_state(*pending_draft_state)
     elif "draft_params" not in st.session_state:
-        set_draft_state(preset_draft, selected_preset["alias"], None)
+        set_draft_state(preset_draft, selected_preset_display, None)
 
     if st.button("Load preset values"):
-        set_draft_state(preset_draft, selected_preset["alias"], None)
+        set_draft_state(preset_draft, selected_preset_display, None)
         st.rerun()
 
     st.divider()
@@ -869,57 +955,29 @@ with st.sidebar:
     if selected_sim is not None:
         st.caption(f"Editing saved simulation: {selected_sim.name}")
     else:
-        st.caption(f"Preset: {selected_preset['preset_name']}; native time unit: {st.session_state['draft_params']['time_unit']}")
+        st.caption(f"Preset: {selected_preset_display}; native time unit: {st.session_state['draft_params']['time_unit']}")
 
     st.text_input("Simulation name", key="draft_name_input")
-    for parameter in CORE_PARAMETER_SPECS:
-        render_log_parameter_control(parameter)
 
-    eh_left, eh_right = st.columns([0.62, 0.38])
-    eh_left.slider(
-        "external hazard exponent",
-        min_value=0.0,
-        max_value=60.0,
-        step=0.1,
-        key="external_hazard_slider",
-        on_change=sync_external_exact_from_slider,
-        help="The model uses an external hazard rate of exp(-x). Enter 0 for the maximum rate; larger values weaken it.",
-    )
-    eh_right.number_input(
-        "external exact",
-        min_value=0.0,
-        max_value=60.0,
-        format="%.8g",
-        key="external_hazard_exact",
-        on_change=sync_external_slider_from_exact,
-    )
-    st.caption(f"External hazard rate = exp(-x) = {display_external_hazard(st.session_state['external_hazard_exact'])}")
-
-    st.divider()
-    st.checkbox("Enable heterogeneity", key="draft_hetro")
-    h1, h2 = st.columns(2)
-    h1.number_input("eta_var", min_value=0.0, format="%.4g", key="draft_eta_var")
-    h2.number_input("beta_var", min_value=0.0, format="%.4g", key="draft_beta_var")
-    h1.number_input("kappa_var", min_value=0.0, format="%.4g", key="draft_kappa_var")
-    h2.number_input("epsilon_var", min_value=0.0, format="%.4g", key="draft_epsilon_var")
-    h1.number_input("xc_var", min_value=0.0, format="%.4g", key="draft_xc_var")
-
-    st.divider()
-    r1, r2 = st.columns(2)
-    r1.number_input("sample size", min_value=100, max_value=25_000, step=100, key="draft_npeople")
-    max_nsteps = max(100, MAX_SIMULATION_STEPS_TIMES_SAMPLE_SIZE // int(st.session_state["draft_npeople"]))
-    if st.session_state["draft_nsteps"] > max_nsteps:
-        st.session_state["draft_nsteps"] = max_nsteps
-    r2.number_input("steps", min_value=1, max_value=max_nsteps, step=1, key="draft_nsteps")
-    r1.number_input("end time", min_value=1, max_value=250, step=1, key="draft_t_end")
-    r2.number_input(
-        "step multiplier",
-        min_value=1,
-        max_value=MAX_TIME_STEP_MULTIPLIER,
-        step=1,
-        key="draft_time_step_multiplier",
-    )
-    st.selectbox("method", ["brownian_bridge", "euler"], key="draft_method")
+    if visualization_style == "Friendly":
+        st.number_input("Sample size", min_value=100, max_value=25_000, step=100, key="draft_npeople")
+        st.caption("The preview updates automatically. Save a full simulation when you like the settings.")
+        with st.expander("Model parameters", expanded=False):
+            render_model_parameter_controls()
+        with st.expander("Advanced simulation settings", expanded=False):
+            render_external_hazard_controls()
+            st.divider()
+            render_heterogeneity_controls()
+            st.divider()
+            render_runtime_controls(show_sample_size=False)
+    else:
+        render_model_parameter_controls()
+        st.divider()
+        render_external_hazard_controls()
+        st.divider()
+        render_heterogeneity_controls()
+        st.divider()
+        render_runtime_controls(show_sample_size=True)
 
     draft_params = draft_params_from_controls()
     work_units = int(draft_params["npeople"]) * int(draft_params["nsteps"])
@@ -1074,8 +1132,12 @@ if "Death-time distribution" in plot_types:
     st.plotly_chart(fig, width="stretch")
     st.download_button("Download death distribution plot HTML", fig.to_html(), file_name="death_distribution.html", mime="text/html")
 
-with st.expander("Parameter effect", expanded=False):
-    st.caption("Generate preview-resolution simulations across one parameter range.")
+effect_title = "Explore one parameter" if visualization_style == "Friendly" else "Parameter effect"
+with st.expander(effect_title, expanded=False):
+    if visualization_style == "Friendly":
+        st.caption("Pick one setting and see how the curves change across a range.")
+    else:
+        st.caption("Generate preview-resolution simulations across one parameter range.")
     base_options = ["Current draft"] + [f"Saved {index + 1}: {sim.name}" for index, sim in enumerate(st.session_state["simulations"])]
     base_choice = st.selectbox("Base", base_options)
     if base_choice == "Current draft":
