@@ -16,7 +16,7 @@ For a clean install test:
 ```bash
 python -m venv /tmp/srtools-release-test
 /tmp/srtools-release-test/bin/python -m pip install dist/srtools_aging-0.1.0-py3-none-any.whl
-/tmp/srtools-release-test/bin/python -c "import SRtools; from SRtools import presets; print(presets.get_preset_names()[:3])"
+/tmp/srtools-release-test/bin/python -c "import importlib.resources as r; import SRtools; from SRtools import Dataset, Life_table, presets; print(presets.get_preset_names()[:3]); print(r.files('SRtools').joinpath('Preset_values', 'All_config.csv').is_file())"
 ```
 
 ## First TestPyPI release
@@ -62,3 +62,7 @@ In GitHub repository settings, protect `main`:
 
 Public users can open pull requests, but these settings prevent their changes
 from entering `main` without approval.
+
+If this repository continues to use `master` as the release branch, apply the
+same protection rules to `master` or rename it to `main` before enabling strict
+branch policies.

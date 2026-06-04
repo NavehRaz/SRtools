@@ -402,32 +402,35 @@ def transform(theta, set_params={}):
 
 def inv_transform(theta_trans, set_params={}):
     """
-    Inverse transform parameters from transformed to original space.
-    
-    This function converts the transformed parameters back to the original
-    SR model parameter space. It is the inverse of the transform() function.
-    
-    Parameters:
-    -----------
+    Convert MCMC samples from the transformed space back to SR parameters.
+
+    The MCMC sampler works in a decorrelated transformed space for efficiency.
+    Call this function on every raw sample before using the parameters in a
+    simulation or reporting results.
+
+    Inverse mapping::
+
+        eta     = xc / xc_eta
+        beta    = eta_beta * eta
+        epsilon = xc² / xc2_epsilon
+        xc      = xc            (unchanged)
+        external_hazard          (unchanged)
+
+    Parameters
+    ----------
     theta_trans : array-like
-        Transformed parameters [xc_eta, eta_beta, xc2_epsilon, xc, external_hazard, ...]
-    set_params : dict, default={}
-        Dictionary of fixed transformed parameters
-    
-    Returns:
-    --------
+        Transformed parameters ``[xc/eta, beta/eta, xc²/epsilon, xc, ...]``.
+    set_params : dict, optional
+        Fixed transformed parameters excluded from *theta_trans*.
+
+    Returns
+    -------
     ndarray
-        Original parameters [eta, beta, epsilon, xc, external_hazard, ...]
-    
-    Notes:
-    ------
-    Inverse transformation:
-    - eta = xc / xc_eta
-    - beta = eta_beta * eta
-    - epsilon = xc² / xc2_epsilon
-    - xc = xc (unchanged)
-    - external_hazard = external_hazard (unchanged)
-    - extra parameters are preserved unchanged
+        SR parameters ``[eta, beta, epsilon, xc, ...]`` in physical units.
+
+    See Also
+    --------
+    transform : forward transformation (physical → decorrelated space).
     """
     pv = parse_theta_trans(theta_trans, set_params)
     for key in ['xc', 'xc_eta', 'eta_beta', 'xc2_epsilon']:
@@ -660,83 +663,101 @@ def getSampler(nwalkers, num_mcmc_steps, dataSet, seed=None, npeople=10000, nste
                restartFromBackEnd=False, progress=False, transformed=False, dt=1, set_params=None, model_func=model, 
                log_samples=False, parallel=False, **kwargs):
     """
-    Create and run MCMC sampler for SR model parameter estimation.
-    
-    This function sets up and runs an MCMC sampling procedure using the emcee
-    ensemble sampler to estimate the posterior distribution of SR model parameters.
-    
-    Parameters:
-    -----------
+    Run Bayesian MCMC parameter inference for the SR model.
+
+    Uses the *emcee* Affine Invariant Ensemble Sampler to estimate the posterior
+    distribution of SR model parameters given observed mortality data.
+
+    **Typical workflow**::
+
+        sampler = getSampler(nwalkers=32, num_mcmc_steps=3000, dataSet=ds,
+                             back_end_file='chain.h5', t_end=110, seed=[0.05, 50, 50, 17])
+        samples, lnprobs = loadSamplesFromDir('results/', discard=1500, thin=5)
+        post = Posterior(samples, lnprobs, bins=100, log=True)
+        best_theta = inv_transform(post.best_raw_sample())
+
+    Parameters
+    ----------
     nwalkers : int
-        Number of walkers in the ensemble sampler
+        Number of ensemble walkers.  Must be even and ≥ ``2 * ndim``.
+        ``32`` is a practical default for 4-D inference.
     num_mcmc_steps : int
-        Number of MCMC steps to run
-    dataSet : object
-        Dataset object containing observed data
+        Total MCMC steps per walker.  Plan to discard 30–50 % as burn-in.
+    dataSet : Dataset
+        Observed mortality data (death times + events).
     seed : array-like, optional
-        Seed parameters for generating initial bins. If None, bins must be provided
-    npeople : int, default=10000
-        Number of individuals to simulate
-    nsteps : int, default=5000
-        Number of time steps for simulation
+        Initial parameter guess ``[eta, beta, epsilon, xc]``.  Used to
+        generate the starting positions of all walkers.  Ignored if *bins*
+        is provided.
+    npeople : int, optional
+        Simulation population size per likelihood evaluation.  Default 10000.
+    nsteps : int, optional
+        Simulation time steps.  Default 5000.
     t_end : float, optional
-        End time for simulation. If None, uses dataSet.t_end
-    ndim : int, default=4
-        Number of dimensions (parameters) to sample
+        Simulation end time (years).  If None, inferred from *dataSet*.
+    ndim : int, optional
+        Number of free parameters: ``4`` for ``[eta, beta, epsilon, xc]``,
+        ``5`` to also fit *external_hazard*.  Default 4.
     bins : list, optional
-        Parameter bins for initial walker positions. If None, generated from seed
-    variations : list, default=[0.7, 1.3]
-        Variations for generating bins from seed. Can be:
-        - List of 2 elements: applied to all parameters
-        - List of ndim lists of 2 elements: specific for each parameter
-        - List of ndim lists of n_bins lists of 2 elements: multiple bins per parameter
-    draw_params_in_log_space : bool, default=True
-        Whether to draw initial parameters in log space
+        Explicit initial walker positions.  If None, generated from *seed*
+        using *variations*.
+    variations : list, optional
+        Fractional range around *seed* for walker initialisation.
+        ``[0.7, 1.3]`` places walkers in ``[0.7·seed, 1.3·seed]``.
+        Default ``[0.7, 1.3]``.
+    draw_params_in_log_space : bool, optional
+        Draw initial walker positions in log space. Default True.
     prior_generator : object, optional
-        Prior generator object for sampling initial positions
+        Custom prior-generation object.  Rarely needed; use *prior* instead.
     back_end_file : str, optional
-        Path to HDF5 file for storing sampler backend
-    metric : str, default='baysian'
-        Metric for likelihood calculation: 'baysian', 'survival', etc.
+        Path for the emcee HDF5 backend (checkpointing).  Strongly recommended
+        for long runs — allows resuming if interrupted.
+    metric : str, optional
+        Likelihood metric: ``'baysian'`` (default) or ``'survival'``.
     time_range : tuple, optional
-        Time range (start, end) for comparison
-    time_step_multiplier : float, default=1
-        Multiplier for time step size
-    prior : list or float, optional
-        Prior bounds. Can be:
-        - List of [min, max] pairs for each parameter
-        - Float: expansion factor for generating bounds from bins
-        - None: uses default expansion factor of 10
-    restartFromBackEnd : bool, default=False
-        Whether to restart from existing backend file
-    progress : bool, default=False
-        Whether to show progress bar
-    transformed : bool, default=False
-        Whether to use transformed parameter space
-    dt : float, default=1
-        Time step for distance calculation
+        ``(t_min, t_max)`` window for likelihood evaluation.  Default None.
+    time_step_multiplier : int, optional
+        Sub-step factor for numerical stability.  Default 1.
+    prior : list or float or None, optional
+        Prior bounds.  Options:
+
+        - ``None``: use ×10 expansion around *bins* (default).
+        - ``float``: expansion factor applied to *bins*.
+        - ``list``: explicit ``[[min, max], ...]`` for each parameter.
+    restartFromBackEnd : bool, optional
+        Resume from an existing *back_end_file*. Default False.
+    progress : bool, optional
+        Show a tqdm progress bar during sampling. Default False.
+    transformed : bool, optional
+        Sample in the decorrelated transformed space (see :func:`transform`).
+        Default False.
+    dt : float, optional
+        Time bin width for the likelihood calculation. Default 1.
     set_params : dict, optional
-        Dictionary of fixed parameters
-    model_func : callable, default=model
-        Function to evaluate model
-    log_samples : bool, default=False
-        If True, log the initial sample values and exponentiate theta in lnprob/lnprobTransformed
-    **kwargs : dict
-        Additional keyword arguments (for backward compatibility)
-    
-    Returns:
-    --------
+        Fix specific parameters (e.g. ``{'external_hazard': 0.01}``).
+        Fixed parameters are excluded from sampling.
+    model_func : callable, optional
+        Custom log-likelihood function; defaults to
+        :func:`~SRtools.SR_hetro.model`.  Must have the signature
+        ``model(theta, n, nsteps, t_end, dataSet, **kwargs) -> float``.
+    log_samples : bool, optional
+        Work in log-parameter space internally. Default False.
+    **kwargs
+        Accepted for backward compatibility with older per-parameter bin
+        arguments (``eta_bins``, ``beta_bins``, etc.).
+
+    Returns
+    -------
     emcee.EnsembleSampler
-        Configured and run MCMC sampler object
-    
-    Notes:
-    ------
-    The function handles backward compatibility with individual bin parameters
-    (eta_bins, beta_bins, etc.) and automatically sets external_hazard from
-    dataSet if not provided and ndim=4.
-    
-    The sampler can be configured to use either the original or transformed
-    parameter space, with appropriate likelihood and prior functions.
+        Completed sampler.  Extract results with
+        :func:`loadSamplesFromDir` or directly via
+        ``sampler.get_chain(flat=True, discard=burn_in, thin=thin)``.
+
+    Notes
+    -----
+    - Recommended burn-in: discard the first 30–50 % of steps.
+    - Thinning (``thin=5``–``20``) reduces sample autocorrelation.
+    - *external_hazard* is automatically read from *dataSet* when ``ndim=4``.
     """
     ####THIS IS FOR BACKWARDS COMPATIBILITY.##### 
     eta_bins = kwargs.get('eta_bins', None)
@@ -1036,35 +1057,39 @@ def loadSamples(back_end_file, flat=True, thin=1, discard=0):
 
 def loadSamplesFromDir(dirs, best=True, flat=True, n_per_file=800, thin=1, discard=0, debug=False):
     """
-    Load MCMC samples from multiple HDF5 files in directories.
-    
-    This function loads samples from all HDF5 files in the specified directories
-    and concatenates them into a single array. Optionally selects only the best
-    samples from each file.
-    
-    Parameters:
-    -----------
-    dirs : str or list
-        Directory path(s) containing HDF5 files
-    best : bool, default=True
-        Whether to select only the best samples from each file
-    flat : bool, default=True
-        Whether to flatten the samples (combine all walkers)
-    n_per_file : int, default=800
-        Number of best samples to take from each file (if best=True)
-    thin : int, default=1
-        Thinning factor (take every nth sample)
-    discard : int, default=0
-        Number of initial samples to discard
-    debug : bool, default=False
-        Whether to print detailed error information
-    
-    Returns:
-    --------
-    tuple
-        (samples, lnprobs) where:
-        - samples: concatenated array of parameter samples
-        - lnprobs: concatenated array of log probability values
+    Load and combine MCMC samples from one or more result directories.
+
+    Reads every HDF5 backend file found in *dirs*, applies burn-in removal and
+    thinning, and concatenates the results into a single flat array.  When
+    running many chains in parallel on a cluster, pass all result folders here.
+
+    Parameters
+    ----------
+    dirs : str or list of str
+        Directory path(s) containing ``.h5`` backend files written by
+        :func:`getSampler`.
+    best : bool, optional
+        If True, keep only the *n_per_file* highest-log-prob samples from each
+        file.  Useful for combining many short chains while staying focused on
+        the high-probability region.  Default True.
+    flat : bool, optional
+        Flatten walkers × steps into a single axis.  Default True.
+    n_per_file : int, optional
+        Number of samples to retain per file when ``best=True``.  Default 800.
+    thin : int, optional
+        Keep every *thin*-th sample to reduce autocorrelation.  Default 1.
+    discard : int, optional
+        Number of initial steps per walker to discard as burn-in.  Default 0.
+    debug : bool, optional
+        Print per-file error details when loading fails.  Default False.
+
+    Returns
+    -------
+    samples : ndarray, shape (n_total, ndim)
+        Concatenated parameter samples (in the transformed space if the
+        sampler used ``transformed=True``).
+    lnprobs : ndarray, shape (n_total,)
+        Corresponding log-probability values.
     
     Notes:
     ------

@@ -493,58 +493,104 @@ class Posterior:
         return X, Y
 
     def corner_plot(self, ax=None, colors=None, labels=None, truths=None, scale ='log',show_ln_prob = False, stats = ['mean','std','percentiles', 'mode'],percentiles = [16, 50, 95],plot_type = 'contourf', prior_lnprobs=0,smooth_mode=False, show_colorbar=False, **kwargs):
-            
-            n_features = self.unique_samples.shape[1]
-            
-            if ax is None:
-                fig, ax = plt.subplots(n_features, n_features, figsize=(5 * n_features, 5 * n_features))
-                fig.tight_layout(pad=3.0)
-            diagonal_axes = [ax[i,i] for i in range(n_features)]
-            # Marginalize prior_lnprobs for 1D plots
-            
-            for i, ax1d in enumerate(diagonal_axes):
-                _=self.plot_1d_posteriors(ax=ax1d,features=[i], colors=colors, labels=labels, truths=truths, scale=scale, show_ln_prob=show_ln_prob, stats=stats, percentiles=percentiles)
-            if self.progress_bar:
-                iterator = tqdm(range(n_features), desc="Creating corner plot")
-            else:
-                iterator = range(n_features)
-            for i in iterator:
-                for j in range(i):
-                    # Marginalize prior_lnprobs for 2D plots
-                    _=self.plot_2d_posteriors(features=[j,i], ax=ax[i,j], labels=labels, truths=truths, scale=scale, show_ln_prob=show_ln_prob, stats=stats, percentiles=percentiles, plot_type=plot_type, **kwargs)
-                for j in range(i+1, n_features):
-                    ax[i,j].axis('off')
-            
-            # Add colorbar if requested
-            if show_colorbar and plot_type in ['contourf', 'pcolormesh']:
-                # Get the last 2D plot to use for colorbar
-                last_plot = ax[1,0].collections[0] if plot_type == 'contourf' else ax[1,0].collections[0]
-                cbar_ax = ax[0,0].figure.add_axes([0.92, 0.15, 0.02, 0.7])
-                cbar = plt.colorbar(last_plot, cax=cbar_ax)
-                cbar.set_label('Probability Density' if not show_ln_prob else 'Log Probability Density', fontsize=14)
+        """
+        Plot the marginal 1-D and joint 2-D posterior distributions (corner/triangle plot).
 
-            # Only show labels on outer panels and make them bigger
-            for i in range(n_features):
-                for j in range(n_features):
-                    if i < n_features-1:  # Not bottom row
-                        ax[i,j].set_xlabel('')
-                    if j > 0:  # Not leftmost column
-                        ax[i,j].set_ylabel('')
-                    if i == n_features-1 and labels is not None:  # Bottom row
-                        ax[i,j].set_xlabel(labels[j], fontsize=14)
-                    if j == 0 and labels is not None:  # Leftmost column
-                        ax[i,j].set_ylabel(labels[i], fontsize=14)
-                    # Make tick labels bigger
-                    ax[i,j].tick_params(axis='both', which='major', labelsize=12)
+        Diagonal panels show the 1-D marginal posterior for each parameter.
+        Off-diagonal panels show 2-D joint distributions between pairs of parameters.
+
+        Parameters
+        ----------
+        ax : ndarray of Axes, optional
+            Pre-existing axes array of shape ``(n_features, n_features)``.
+            If None, a new figure is created.
+        colors : list of str, optional
+            One colour per parameter for the 1-D histograms.
+        labels : list of str, optional
+            Axis labels for each parameter (e.g. ``[r'$\\eta$', r'$\\beta$']``).
+        truths : array-like, optional
+            Reference (e.g. ground-truth or preset) values drawn as vertical/horizontal
+            lines.  Useful for validating inference on simulated data.
+        scale : str, optional
+            X-axis scale for 1-D panels: ``'log'`` (default) or ``'linear'``.
+        show_ln_prob : bool, optional
+            If True, plot log-probability on the y-axis of 1-D panels instead of
+            probability. Default False.
+        stats : list of str, optional
+            Annotations to overlay on 1-D panels.  Options:
+            ``'mean'``, ``'std'``, ``'percentiles'``, ``'mode'``.
+        percentiles : list of int, optional
+            Credible-interval levels to shade, e.g. ``[16, 50, 95]`` for
+            68 % and 90 % credible intervals.  Default ``[16, 50, 95]``.
+        plot_type : str, optional
+            2-D rendering style: ``'contourf'`` (filled contours, default) or
+            ``'pcolormesh'`` (pixel grid).
+        prior_lnprobs : ndarray or float, optional
+            Prior log-probabilities for ratio-based colouring. Default 0.
+        smooth_mode : bool, optional
+            Use a smoothed mode estimate for noisy posteriors. Default False.
+        show_colorbar : bool, optional
+            Add a colour bar to 2-D panels. Default False.
+        **kwargs
+            Additional keyword arguments forwarded to the 2-D plot call
+            (e.g. ``cmap='viridis'``).
+
+        Returns
+        -------
+        ax : ndarray of Axes
+            The axes array of shape ``(n_features, n_features)``.
+        """
+        n_features = self.unique_samples.shape[1]
             
-            # Add main title
-            if labels is not None:
-                ax[0,0].figure.suptitle('2D Marginalized Posterior', fontsize=20, y=1.02)
-            
-            return ax
+        if ax is None:
+            fig, ax = plt.subplots(n_features, n_features, figsize=(5 * n_features, 5 * n_features))
+            fig.tight_layout(pad=3.0)
+        diagonal_axes = [ax[i,i] for i in range(n_features)]
+        # Marginalize prior_lnprobs for 1D plots
+        
+        for i, ax1d in enumerate(diagonal_axes):
+            _=self.plot_1d_posteriors(ax=ax1d,features=[i], colors=colors, labels=labels, truths=truths, scale=scale, show_ln_prob=show_ln_prob, stats=stats, percentiles=percentiles)
+        if self.progress_bar:
+            iterator = tqdm(range(n_features), desc="Creating corner plot")
+        else:
+            iterator = range(n_features)
+        for i in iterator:
+            for j in range(i):
+                # Marginalize prior_lnprobs for 2D plots
+                _=self.plot_2d_posteriors(features=[j,i], ax=ax[i,j], labels=labels, truths=truths, scale=scale, show_ln_prob=show_ln_prob, stats=stats, percentiles=percentiles, plot_type=plot_type, **kwargs)
+            for j in range(i+1, n_features):
+                ax[i,j].axis('off')
+        
+        # Add colorbar if requested
+        if show_colorbar and plot_type in ['contourf', 'pcolormesh']:
+            # Get the last 2D plot to use for colorbar
+            last_plot = ax[1,0].collections[0] if plot_type == 'contourf' else ax[1,0].collections[0]
+            cbar_ax = ax[0,0].figure.add_axes([0.92, 0.15, 0.02, 0.7])
+            cbar = plt.colorbar(last_plot, cax=cbar_ax)
+            cbar.set_label('Probability Density' if not show_ln_prob else 'Log Probability Density', fontsize=14)
+
+        # Only show labels on outer panels and make them bigger
+        for i in range(n_features):
+            for j in range(n_features):
+                if i < n_features-1:  # Not bottom row
+                    ax[i,j].set_xlabel('')
+                if j > 0:  # Not leftmost column
+                    ax[i,j].set_ylabel('')
+                if i == n_features-1 and labels is not None:  # Bottom row
+                    ax[i,j].set_xlabel(labels[j], fontsize=14)
+                if j == 0 and labels is not None:  # Leftmost column
+                    ax[i,j].set_ylabel(labels[i], fontsize=14)
+                # Make tick labels bigger
+                ax[i,j].tick_params(axis='both', which='major', labelsize=12)
+        
+        # Add main title
+        if labels is not None:
+            ax[0,0].figure.suptitle('2D Marginalized Posterior', fontsize=20, y=1.02)
+        
+        return ax
 
 
-    def create_posterior_df(self,transforms = ['default'],labels = None, ds=None,ds_labels=None, kappa=0.5, filepath = None, smooth_mode = False, rescale=None, set_xc=False, truth=None):
+    def create_posterior_df(self,transforms = ['default'],labels = None, ds=None,ds_labels=None, kappa=0.5, filepath = None, smooth_mode = False, rescale=None, set_xc=False, truth=None, extra_param_labels=None):
         """
         Creates a summerey pandas dataframe of the maximum posterior statistics for the samples.
         For each transfor in the transforms list, the statistics are calculated and added to the dataframe.
@@ -578,6 +624,10 @@ class Posterior:
             If True, uses the xc value from the sample. If a float, uses that fixed xc value for all transforms.
             When set_xc is provided, the transformed samples will have 3 parameters instead of 4 (xc is not returned).
             Default is False.
+        extra_param_labels: list[str] or str, optional
+            Optional labels for extra parameters beyond the default base parameters.
+            If provided, length must match the number of extra parameters.
+            If None, backward-compatible defaults are used: ['ExtH', 'lambda0', ...].
         """
         #if rescale is a float or int, and "default" is in the transforms list, rescale the samples as a rescaling of time:
         n_features = self.unique_samples.shape[1]
@@ -611,8 +661,24 @@ class Posterior:
                               ["epsilon/beta^2","k/beta","k^2/epsilon","xc"],
                               ["eta/xc","beta/xc","epsilon/xc^2","k/xc"]]
             if n_features > 4 or (set_xc is not False and set_xc is not None and n_features > 3):
-                extra_labels = ['ExtH']
-                extra_labels += [f'lambda{i}' for i in range(n_features-4)]
+                base_feature_count = 3 if (set_xc is not False and set_xc is not None) else 4
+                extra_param_count = n_features - base_feature_count
+                if extra_param_labels is None:
+                    extra_labels = ['ExtH']
+                    if extra_param_count > 1:
+                        extra_labels += [f'lambda{i}' for i in range(extra_param_count-1)]
+                else:
+                    if isinstance(extra_param_labels, str):
+                        extra_labels = [extra_param_labels]
+                    elif isinstance(extra_param_labels, (list, tuple, np.ndarray)):
+                        extra_labels = [str(label) for label in extra_param_labels]
+                    else:
+                        raise TypeError("extra_param_labels must be a string or a sequence of labels")
+                    if len(extra_labels) != extra_param_count:
+                        raise ValueError(
+                            f"extra_param_labels length ({len(extra_labels)}) must match "
+                            f"the number of extra parameters ({extra_param_count})"
+                        )
                 for i,label in enumerate(labels):
                     labels[i] += extra_labels
              
@@ -945,10 +1011,24 @@ class Posterior:
     
     def get_mode(self, idx=False):
         """
-        Get the mode of the posterior distribution.
-        returns:
-        mode: np.ndarray
-            The mode of the posterior distribution.
+        Return the parameter set at the peak of the binned posterior.
+
+        The mode is the entry in *unique_samples* with the highest discretised
+        posterior probability.  Log-scaled features are back-transformed to
+        the original parameter space before returning.
+
+        Parameters
+        ----------
+        idx : bool, optional
+            If True, also return the integer index of the mode in
+            *unique_samples*.  Default False.
+
+        Returns
+        -------
+        mode : ndarray
+            Best-fit parameter values (shape: ``n_features``).
+        mode_index : int
+            Index into *unique_samples*.  Only returned when ``idx=True``.
         """
         mode_index = np.argmax(self.posterior)
         mode = self.unique_samples[mode_index].copy()
@@ -1044,7 +1124,20 @@ class Posterior:
     
     def best_raw_sample(self):
         """
-        Get the best sample in the posterior distribution.
+        Return the raw MCMC sample with the highest log-probability.
+
+        Unlike :meth:`get_mode`, which operates on the discretised posterior,
+        this returns the single best walker position from the raw chain —
+        useful as a point estimate or as a starting point for further
+        simulation.
+
+        Returns
+        -------
+        ndarray or None
+            Parameter vector (in the transformed space used during sampling).
+            Use :func:`~SRtools.sr_mcmc.inv_transform` to convert back to
+            physical SR parameters.  Returns None (with a warning) if the
+            raw samples were not stored.
         """
         if self.samples is None or self.lnprobs is None:
             print("WARNING: self.samples or self.lnprobs are not set.")
