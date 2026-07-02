@@ -38,6 +38,26 @@ from .samples_utils import Posterior, JointPosterior
 # Parameter search
 from .initialParamsFinder import Guess
 
+# Automated initial-guess + Species360 config generation
+from .auto_initial_guess import (
+    auto_fit,
+    FitResult,
+    build_loglog_fits,
+    predict_initial_theta,
+    compute_timing,
+    detect_external_hazard,
+    detect_trend_start,
+    conditional_median_steepness,
+    evaluate_fit,
+)
+from .species_config_builder import (
+    build_config_column,
+    build_qc_row,
+    write_configurations_excel,
+    ROW_ORDER,
+)
+from .calibration_report import plot_survival_overview, plot_diagnostics_overview
+
 __all__ = [
     # Core dataset classes
     'Dataset',
@@ -71,4 +91,20 @@ __all__ = [
     'JointPosterior',
     # Parameter search
     'Guess',
+    # Automated initial-guess + config generation
+    'auto_fit',
+    'FitResult',
+    'build_loglog_fits',
+    'predict_initial_theta',
+    'compute_timing',
+    'detect_external_hazard',
+    'detect_trend_start',
+    'conditional_median_steepness',
+    'evaluate_fit',
+    'build_config_column',
+    'build_qc_row',
+    'write_configurations_excel',
+    'ROW_ORDER',
+    'plot_survival_overview',
+    'plot_diagnostics_overview',
 ]

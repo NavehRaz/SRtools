@@ -36,6 +36,7 @@ class intervention_SR(srh.SR_Hetro):
                  epsilon_effect=0.0, epsilon_duration=[0, 0], epsilon_time_dep_value=0.0, epsilon_exit_alpha=0.0, epsilon_exit_tau=1.0,
                  Xc_effect=0.0, Xc_duration=[0, 0], Xc_time_dep_value=0.0, Xc_exit_alpha=0.0, Xc_exit_tau=1.0,
                  kappa_effect=0.0, kappa_duration=[0, 0], kappa_time_dep_value=0.0, kappa_exit_alpha=0.0, kappa_exit_tau=1.0,
+                 exth_level=np.inf, exth_duration=None,
                  save_trajectory=False, traj_points=500):
         
         self.save_trajectory = save_trajectory
@@ -83,6 +84,11 @@ class intervention_SR(srh.SR_Hetro):
         self.kappa_time_dep_value = float(kappa_time_dep_value)
         self.kappa_exit_alpha = float(kappa_exit_alpha)
         self.kappa_exit_tau = float(kappa_exit_tau)
+
+        self.exth_level = float(exth_level)
+        self.exth_duration = self._process_duration(
+            exth_duration if exth_duration is not None else [0.0, 0.0],
+            intervention_time)
 
         # Extract base method (remove _exit suffix if present)
         base_method = method.replace('_exit', '').replace('_Exit', '')
@@ -152,6 +158,7 @@ class intervention_SR(srh.SR_Hetro):
                 self.eta_exit_alpha, self.eta_exit_tau, self.epsilon_exit_alpha, self.epsilon_exit_tau,
                 self.Xc_exit_alpha, self.Xc_exit_tau,
                 self.kappa_exit_alpha, self.kappa_exit_tau,
+                self.exth_level, self.exth_duration[0], self.exth_duration[1],
                 self.save_trajectory, traj_time_points)
 
             # Use exit-specific functions
@@ -170,6 +177,7 @@ class intervention_SR(srh.SR_Hetro):
                 self.epsilon_effect, self.epsilon_duration[0], self.epsilon_duration[1], self.epsilon_time_dep_value,
                 self.Xc_effect, self.Xc_duration[0], self.Xc_duration[1], self.Xc_time_dep_value,
                 self.kappa_effect, self.kappa_duration[0], self.kappa_duration[1], self.kappa_time_dep_value,
+                self.exth_level, self.exth_duration[0], self.exth_duration[1],
                 self.save_trajectory, traj_time_points)
 
             if self.method == 'brownian_bridge':
@@ -410,6 +418,7 @@ def death_times_accelerator_fast(s, dt, t, eta0, eta_var, beta0, beta_var, kappa
                                  epsilon_effect=0.0, epsilon_duration_start=0.0, epsilon_duration_stop=0.0, epsilon_time_dep_value=0.0,
                                  Xc_effect=0.0, Xc_duration_start=0.0, Xc_duration_stop=0.0, Xc_time_dep_value=0.0,
                                  kappa_effect=0.0, kappa_duration_start=0.0, kappa_duration_stop=0.0, kappa_time_dep_value=0.0,
+                                 exth_level=np.inf, exth_duration_start=0.0, exth_duration_stop=0.0,
                                  save_trajectory=False, traj_time_points=np.array([0.0])):
     """
     Optimized death times calculator for 4 fixed interventions: A, beta, eta, Xc.
@@ -422,6 +431,12 @@ def death_times_accelerator_fast(s, dt, t, eta0, eta_var, beta0, beta_var, kappa
     else:
         trajectories = np.zeros((1, 1))
     
+    constant_hazard = np.isfinite(external_hazard)
+    _ndt0 = dt / time_step_multiplier
+    base_chance_exth = np.exp(-external_hazard) * _ndt0 if constant_hazard else 0.0
+    exth_active = np.isfinite(exth_level)
+    exth_chance = np.exp(-exth_level) * _ndt0 if exth_active else 0.0
+    any_exth = constant_hazard or exth_active
     for l in range(npeople):
         x = 0.0
         y = 0.0
@@ -429,7 +444,7 @@ def death_times_accelerator_fast(s, dt, t, eta0, eta_var, beta0, beta_var, kappa
         j = 0
         ndt = dt / time_step_multiplier
         nsdt = sdt / np.sqrt(time_step_multiplier)
-        chance_to_die_externally = np.exp(-external_hazard) * ndt
+        chance_to_die_externally = base_chance_exth
         eta = eta0 * np.random.normal(1.0, eta_var)
         beta = beta0 * np.random.normal(1.0, beta_var)
         kappa = kappa0 * np.random.normal(1.0, kappa_var)
@@ -459,6 +474,11 @@ def death_times_accelerator_fast(s, dt, t, eta0, eta_var, beta0, beta_var, kappa
                                                         Xc_duration_start, Xc_duration_stop)
                 kappa_eff = get_time_dependent_effect_fast(kappa_effect, kappa_time_dep_value, current_time,
                                                            kappa_duration_start, kappa_duration_stop)
+                if exth_active:
+                    if exth_duration_start <= current_time <= exth_duration_stop:
+                        chance_to_die_externally = exth_chance      # absolute windowed level
+                    else:
+                        chance_to_die_externally = base_chance_exth # off outside window
                 current_kappa = kappa * (1 + kappa_eff) if kappa_eff != 0.0 else kappa
 
                 # Apply parameter modifications
@@ -474,8 +494,8 @@ def death_times_accelerator_fast(s, dt, t, eta0, eta_var, beta0, beta_var, kappa
                 noise = np.sqrt(2 * current_epsilon) * np.random.normal(0.0, 1.0)
                 x = x + ndt * (current_eta * y - current_beta * x / (x + current_kappa)) + noise * nsdt
                 x = np.maximum(x, 0.0)
-                
-                if np.random.uniform(0, 1) < chance_to_die_externally:
+
+                if any_exth and np.random.uniform(0, 1) < chance_to_die_externally:
                     x = current_xc
                 if x >= current_xc:
                     break
@@ -559,6 +579,7 @@ def death_times_euler_brownian_bridge_fast(s, dt, t, eta0, eta_var, beta0, beta_
                                           epsilon_effect=0.0, epsilon_duration_start=0.0, epsilon_duration_stop=0.0, epsilon_time_dep_value=0.0,
                                           Xc_effect=0.0, Xc_duration_start=0.0, Xc_duration_stop=0.0, Xc_time_dep_value=0.0,
                                           kappa_effect=0.0, kappa_duration_start=0.0, kappa_duration_stop=0.0, kappa_time_dep_value=0.0,
+                                          exth_level=np.inf, exth_duration_start=0.0, exth_duration_stop=0.0,
                                           save_trajectory=False, traj_time_points=np.array([0.0])):
     """
     Euler method with Brownian bridge crossing detection - optimized for 4 fixed interventions.
@@ -573,9 +594,12 @@ def death_times_euler_brownian_bridge_fast(s, dt, t, eta0, eta_var, beta0, beta_
     ndt = dt / time_step_multiplier
     nsdt = sdt / np.sqrt(time_step_multiplier)
     constant_hazard = np.isfinite(external_hazard)
-    if constant_hazard:
-        chance_to_die_externally = np.exp(-external_hazard) * ndt
-    
+    base_chance_exth = np.exp(-external_hazard) * ndt if constant_hazard else 0.0
+    chance_to_die_externally = base_chance_exth
+    exth_active = np.isfinite(exth_level)
+    exth_chance = np.exp(-exth_level) * ndt if exth_active else 0.0
+    any_exth = constant_hazard or exth_active
+
     for person in range(npeople):
         x = 0.0
         y = 0.0
@@ -587,16 +611,16 @@ def death_times_euler_brownian_bridge_fast(s, dt, t, eta0, eta_var, beta0, beta_
         epsilon = epsilon0 * np.random.normal(1.0, epsilon_var)
         xc = xc0 * np.random.normal(1.0, xc_var)
         crossed = False
-        
+
         while j < s - 1 and not crossed:
             current_time = t[j]
-            
+
             # Save trajectory if requested
             if save_trajectory and x < xc:
                 for k in range(len(traj_time_points)):
                     if abs(current_time - traj_time_points[k]) < dt / 2:
                         trajectories[person, k] = x
-            
+
             for _ in range(time_step_multiplier):
                 # Calculate time-dependent effects
                 A_eff = get_time_dependent_effect_fast(A_effect, A_time_dep_value, current_time,
@@ -611,6 +635,11 @@ def death_times_euler_brownian_bridge_fast(s, dt, t, eta0, eta_var, beta0, beta_
                                                         Xc_duration_start, Xc_duration_stop)
                 kappa_eff = get_time_dependent_effect_fast(kappa_effect, kappa_time_dep_value, current_time,
                                                            kappa_duration_start, kappa_duration_stop)
+                if exth_active:
+                    if exth_duration_start <= current_time <= exth_duration_stop:
+                        chance_to_die_externally = exth_chance      # absolute windowed level
+                    else:
+                        chance_to_die_externally = base_chance_exth # off outside window
                 current_kappa = kappa * (1 + kappa_eff) if kappa_eff != 0.0 else kappa
 
                 # Apply parameter modifications
@@ -631,7 +660,7 @@ def death_times_euler_brownian_bridge_fast(s, dt, t, eta0, eta_var, beta0, beta_
                 x_new = max(x_new, 0.0)
 
                 # Check external hazard
-                if constant_hazard and np.random.rand() < chance_to_die_externally:
+                if any_exth and np.random.rand() < chance_to_die_externally:
                     x = current_xc
                     crossed = True
                     break
@@ -682,6 +711,7 @@ def death_times_euler_brownian_bridge_exit_fast(s, dt, t, eta0, eta_var, beta0, 
                                                 eta_exit_alpha=0.0, eta_exit_tau=1.0, epsilon_exit_alpha=0.0, epsilon_exit_tau=1.0,
                                                 Xc_exit_alpha=0.0, Xc_exit_tau=1.0,
                                                 kappa_exit_alpha=0.0, kappa_exit_tau=1.0,
+                                                exth_level=np.inf, exth_duration_start=0.0, exth_duration_stop=0.0,
                                                 save_trajectory=False, traj_time_points=np.array([0.0])):
     """
     Euler method with Brownian bridge crossing detection - with exit effects.
@@ -697,9 +727,12 @@ def death_times_euler_brownian_bridge_exit_fast(s, dt, t, eta0, eta_var, beta0, 
     ndt = dt / time_step_multiplier
     nsdt = sdt / np.sqrt(time_step_multiplier)
     constant_hazard = np.isfinite(external_hazard)
-    if constant_hazard:
-        chance_to_die_externally = np.exp(-external_hazard) * ndt
-    
+    base_chance_exth = np.exp(-external_hazard) * ndt if constant_hazard else 0.0
+    chance_to_die_externally = base_chance_exth
+    exth_active = np.isfinite(exth_level)
+    exth_chance = np.exp(-exth_level) * ndt if exth_active else 0.0
+    any_exth = constant_hazard or exth_active
+
     for person in range(npeople):
         x = 0.0
         y = 0.0
@@ -711,16 +744,16 @@ def death_times_euler_brownian_bridge_exit_fast(s, dt, t, eta0, eta_var, beta0, 
         epsilon = epsilon0 * np.random.normal(1.0, epsilon_var)
         xc = xc0 * np.random.normal(1.0, xc_var)
         crossed = False
-        
+
         while j < s - 1 and not crossed:
             current_time = t[j]
-            
+
             # Save trajectory if requested
             if save_trajectory and x < xc:
                 for k in range(len(traj_time_points)):
                     if abs(current_time - traj_time_points[k]) < dt / 2:
                         trajectories[person, k] = x
-            
+
             for _ in range(time_step_multiplier):
                 # Calculate combined effects (intervention + exit)
                 A_eff = get_combined_effect_fast(A_effect, A_time_dep_value, A_exit_alpha, A_exit_tau,
@@ -735,6 +768,11 @@ def death_times_euler_brownian_bridge_exit_fast(s, dt, t, eta0, eta_var, beta0, 
                                                  current_time, Xc_duration_start, Xc_duration_stop)
                 kappa_eff = get_combined_effect_fast(kappa_effect, kappa_time_dep_value, kappa_exit_alpha, kappa_exit_tau,
                                                      current_time, kappa_duration_start, kappa_duration_stop)
+                if exth_active:
+                    if exth_duration_start <= current_time <= exth_duration_stop:
+                        chance_to_die_externally = exth_chance      # absolute windowed level
+                    else:
+                        chance_to_die_externally = base_chance_exth # off outside window
                 current_kappa = kappa * (1 + kappa_eff) if kappa_eff != 0.0 else kappa
 
                 # Apply parameter modifications
@@ -755,7 +793,7 @@ def death_times_euler_brownian_bridge_exit_fast(s, dt, t, eta0, eta_var, beta0, 
                 x_new = max(x_new, 0.0)
 
                 # Check external hazard
-                if constant_hazard and np.random.rand() < chance_to_die_externally:
+                if any_exth and np.random.rand() < chance_to_die_externally:
                     x = current_xc
                     crossed = True
                     break
@@ -881,6 +919,7 @@ def death_times_euler_brownian_bridge_parallel_fast(s, dt, t, eta0, eta_var, bet
                                                     epsilon_effect=0.0, epsilon_duration_start=0.0, epsilon_duration_stop=0.0, epsilon_time_dep_value=0.0,
                                                     Xc_effect=0.0, Xc_duration_start=0.0, Xc_duration_stop=0.0, Xc_time_dep_value=0.0,
                                                     kappa_effect=0.0, kappa_duration_start=0.0, kappa_duration_stop=0.0, kappa_time_dep_value=0.0,
+                                                    exth_level=np.inf, exth_duration_start=0.0, exth_duration_stop=0.0,
                                                     save_trajectory=False, traj_time_points=np.array([0.0]), n_jobs=-1, chunk_size=1000):
     """
     Parallel version of death_times_euler_brownian_bridge_fast.
@@ -893,6 +932,7 @@ def death_times_euler_brownian_bridge_parallel_fast(s, dt, t, eta0, eta_var, bet
                epsilon_effect, epsilon_duration_start, epsilon_duration_stop, epsilon_time_dep_value,
                Xc_effect, Xc_duration_start, Xc_duration_stop, Xc_time_dep_value,
                kappa_effect, kappa_duration_start, kappa_duration_stop, kappa_time_dep_value,
+               exth_level, exth_duration_start, exth_duration_stop,
                save_trajectory, traj_time_points):
         return death_times_euler_brownian_bridge_fast(
             s, dt, t, eta0, eta_var, beta0, beta_var, kappa0, kappa_var,
@@ -904,6 +944,7 @@ def death_times_euler_brownian_bridge_parallel_fast(s, dt, t, eta0, eta_var, bet
             epsilon_effect, epsilon_duration_start, epsilon_duration_stop, epsilon_time_dep_value,
             Xc_effect, Xc_duration_start, Xc_duration_stop, Xc_time_dep_value,
             kappa_effect, kappa_duration_start, kappa_duration_stop, kappa_time_dep_value,
+            exth_level, exth_duration_start, exth_duration_stop,
             save_trajectory, traj_time_points
         )
 
@@ -924,6 +965,7 @@ def death_times_euler_brownian_bridge_parallel_fast(s, dt, t, eta0, eta_var, bet
             epsilon_effect, epsilon_duration_start, epsilon_duration_stop, epsilon_time_dep_value,
             Xc_effect, Xc_duration_start, Xc_duration_stop, Xc_time_dep_value,
             kappa_effect, kappa_duration_start, kappa_duration_stop, kappa_time_dep_value,
+            exth_level, exth_duration_start, exth_duration_stop,
             save_trajectory, traj_time_points
         ) for n_chunk in chunk_sizes if n_chunk > 0
     )
@@ -946,6 +988,7 @@ def getISR(theta, n=25000, nsteps=6000, t_end=110, external_hazard=np.inf,
                            epsilon_effect=0.0, epsilon_duration=[0, 0], epsilon_time_dep_value=0.0, epsilon_exit_alpha=0.0, epsilon_exit_tau=1.0,
                            Xc_effect=0.0, Xc_duration=[0, 0], Xc_time_dep_value=0.0, Xc_exit_alpha=0.0, Xc_exit_tau=1.0,
                            kappa_effect=0.0, kappa_duration=[0, 0], kappa_time_dep_value=0.0, kappa_exit_alpha=0.0, kappa_exit_tau=1.0,
+                           exth_level=np.inf, exth_duration=None,
                            save_trajectory=False, traj_points=500, theta_intervention=None, durations = None):
     """
     Factory function to generate an intervention SR simulation with flexible interventions.
@@ -1059,6 +1102,8 @@ def getISR(theta, n=25000, nsteps=6000, t_end=110, external_hazard=np.inf,
         epsilon_duration = [0, t_end]
         Xc_duration = [0, t_end]
         kappa_duration = [0, t_end]
+        if exth_duration is None:
+            exth_duration = [0, t_end]
     elif isinstance(durations, list) and len(durations) == 2:
         A_duration = durations
         beta_duration = durations
@@ -1066,6 +1111,8 @@ def getISR(theta, n=25000, nsteps=6000, t_end=110, external_hazard=np.inf,
         epsilon_duration = durations
         Xc_duration = durations
         kappa_duration = durations
+        if exth_duration is None:
+            exth_duration = durations
     elif isinstance(durations, list) and len(durations) == 5:
         A_duration = durations[0]
         beta_duration = durations[1]
@@ -1164,6 +1211,8 @@ def getISR(theta, n=25000, nsteps=6000, t_end=110, external_hazard=np.inf,
         kappa_time_dep_value=kappa_time_dep_value,
         kappa_exit_alpha=kappa_exit_alpha,
         kappa_exit_tau=kappa_exit_tau,
+        exth_level=exth_level,
+        exth_duration=exth_duration,
         save_trajectory=save_trajectory,
         traj_points=traj_points
     )
@@ -1256,6 +1305,7 @@ def death_times_euler_brownian_bridge_periodic_fast(
         eta_effect, eta_time_dep_value,
         epsilon_effect, epsilon_time_dep_value,
         Xc_effect, Xc_time_dep_value,
+        exth_level,
         windows_flat, n_windows,
         save_trajectory, traj_time_points):
     """
@@ -1278,8 +1328,11 @@ def death_times_euler_brownian_bridge_periodic_fast(
     ndt = dt / time_step_multiplier
     nsdt = sdt / np.sqrt(time_step_multiplier)
     constant_hazard = np.isfinite(external_hazard)
-    if constant_hazard:
-        chance_to_die_externally = np.exp(-external_hazard) * ndt
+    base_chance_exth = np.exp(-external_hazard) * ndt if constant_hazard else 0.0
+    chance_to_die_externally = base_chance_exth
+    exth_active = np.isfinite(exth_level)
+    exth_chance = np.exp(-exth_level) * ndt if exth_active else 0.0
+    any_exth = constant_hazard or exth_active
 
     for person in range(npeople):
         x = 0.0
@@ -1313,6 +1366,10 @@ def death_times_euler_brownian_bridge_periodic_fast(
                     epsilon_effect, epsilon_time_dep_value, current_time, windows_flat, n_windows)
                 Xc_eff = get_time_dependent_effect_windows_fast(
                     Xc_effect, Xc_time_dep_value, current_time, windows_flat, n_windows)
+                if exth_active:
+                    indicator = get_time_dependent_effect_windows_fast(
+                        1.0, 0.0, current_time, windows_flat, n_windows)
+                    chance_to_die_externally = exth_chance if indicator != 0.0 else base_chance_exth
 
                 current_eta     = eta     * (1 + eta_eff)     if eta_eff     != 0.0 else eta
                 current_beta    = beta    * (1 + beta_eff)    if beta_eff    != 0.0 else beta
@@ -1327,7 +1384,7 @@ def death_times_euler_brownian_bridge_periodic_fast(
                 noise = sqrt_2eps * np.random.normal()
                 x_new = max(x + ndt * drift + noise * nsdt, 0.0)
 
-                if constant_hazard and np.random.rand() < chance_to_die_externally:
+                if any_exth and np.random.rand() < chance_to_die_externally:
                     x = current_xc
                     crossed = True
                     break
@@ -1368,6 +1425,7 @@ def death_times_euler_brownian_bridge_periodic_exit_fast(
         eta_effect, eta_time_dep_value,
         epsilon_effect, epsilon_time_dep_value,
         Xc_effect, Xc_time_dep_value,
+        exth_level,
         Xc_exit_alpha, Xc_exit_tau,
         windows_flat, n_windows,
         save_trajectory, traj_time_points):
@@ -1391,8 +1449,11 @@ def death_times_euler_brownian_bridge_periodic_exit_fast(
     ndt = dt / time_step_multiplier
     nsdt = sdt / np.sqrt(time_step_multiplier)
     constant_hazard = np.isfinite(external_hazard)
-    if constant_hazard:
-        chance_to_die_externally = np.exp(-external_hazard) * ndt
+    base_chance_exth = np.exp(-external_hazard) * ndt if constant_hazard else 0.0
+    chance_to_die_externally = base_chance_exth
+    exth_active = np.isfinite(exth_level)
+    exth_chance = np.exp(-exth_level) * ndt if exth_active else 0.0
+    any_exth = constant_hazard or exth_active
 
     for person in range(npeople):
         x = 0.0
@@ -1428,6 +1489,10 @@ def death_times_euler_brownian_bridge_periodic_exit_fast(
                     Xc_effect, Xc_time_dep_value,
                     Xc_exit_alpha, Xc_exit_tau,
                     current_time, windows_flat, n_windows)
+                if exth_active:
+                    indicator = get_time_dependent_effect_windows_fast(
+                        1.0, 0.0, current_time, windows_flat, n_windows)
+                    chance_to_die_externally = exth_chance if indicator != 0.0 else base_chance_exth
 
                 current_eta     = eta     * (1 + eta_eff)     if eta_eff     != 0.0 else eta
                 current_beta    = beta    * (1 + beta_eff)    if beta_eff    != 0.0 else beta
@@ -1442,7 +1507,7 @@ def death_times_euler_brownian_bridge_periodic_exit_fast(
                 noise = sqrt_2eps * np.random.normal()
                 x_new = max(x + ndt * drift + noise * nsdt, 0.0)
 
-                if constant_hazard and np.random.rand() < chance_to_die_externally:
+                if any_exth and np.random.rand() < chance_to_die_externally:
                     x = current_xc
                     crossed = True
                     break
@@ -1485,6 +1550,7 @@ def getISR_periodic(theta, period, phase_offset, t_end,
                     epsilon_effect=0.0, epsilon_time_dep_value=0.0,
                     Xc_effect=0.0,      Xc_time_dep_value=0.0,
                     Xc_exit_alpha=0.0,  Xc_exit_tau=1.0,
+                    exth_level=np.inf,
                     save_trajectory=False, traj_points=500):
     """
     Simulate a periodic (multi-window) diet intervention and return a Dataset.
@@ -1580,6 +1646,7 @@ def getISR_periodic(theta, period, phase_offset, t_end,
         float(eta_effect),     float(eta_time_dep_value),
         float(epsilon_effect), float(epsilon_time_dep_value),
         float(Xc_effect),      float(Xc_time_dep_value),
+        float(exth_level),
     )
 
     if float(Xc_exit_alpha) != 0.0:
@@ -1597,6 +1664,7 @@ def getISR_periodic(theta, period, phase_offset, t_end,
                 windows_flat, n_windows,
                 save_trajectory, traj_time_points,
             )
+    # Note: exth_level is included in common_args; both periodic JIT functions accept it.
 
     return dtds.Dataset(death_times_arr, events_arr, bandwidth=bandwidth)
 

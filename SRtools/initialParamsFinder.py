@@ -1,5 +1,6 @@
 from . import SRmodellib_lifelines as srl
 from . import SRmodellib as sr
+from . import SR_hetro as srh
 import numpy as np
 from . import deathTimesDataSet as dtds
 
@@ -20,7 +21,20 @@ class Guess:
         self.dt = dt
         self.time_range = time_range
         self.t_end = self.ds.t_end if t_end is None else t_end
-        self.guess = srl.getSr(self.theta, n=self.npeople,nsteps=self.nsteps, t_end=self.t_end, external_hazard = self.external_hazard, time_step_multiplier=self.time_step_multiplier, parallel=self.parallel)
+        self.guess = self._sim(self.theta, self.t_end)
+
+    def _sim(self, theta, t_end):
+        """Simulate the homogeneous SR model for ``theta`` at the given ``t_end``.
+
+        Uses ``getSrHetro(hetro=False)`` rather than ``SR_lf``/``getSr``: it reliably
+        computes death times, whereas ``SR_lf`` can leave ``death_times`` unset for
+        degenerate parameter regimes (which broke ``baysianDistance``).
+        """
+        return srh.getSrHetro(
+            np.asarray(theta, dtype=float), n=self.npeople, nsteps=self.nsteps, t_end=t_end,
+            external_hazard=self.external_hazard, time_step_multiplier=self.time_step_multiplier,
+            hetro=False, parallel=self.parallel,
+        )
 
     def calibrateEta(self, update_t_end = True, update_nsteps = True):
         """
@@ -32,7 +46,7 @@ class Guess:
             self.t_end = self.ds.t_end
             if update_nsteps:
                 self.nsteps = int(self.nsteps // ratio)
-        self.guess = srl.getSr(self.theta, n=self.npeople, nsteps=self.nsteps, t_end=self.ds.t_end, external_hazard=self.external_hazard, time_step_multiplier=self.time_step_multiplier, parallel=self.parallel)
+        self.guess = self._sim(self.theta, self.ds.t_end)
         print(f'The eta parameter has been calibrated by ratio {ratio} to:', self.theta[0])
 
     def plotAll(self,dt=1):
@@ -59,19 +73,31 @@ class Guess:
         plt.tight_layout()
         plt.show()
 
-    def make_guess(self, niter = 5 , step_size = 1.5, skip_params = [], plot = True,print_thetas =True,plot_dt=1, method='one_at_a_time'):
+    def make_guess(self, niter = 5 , step_size = 1.5, skip_params = [], plot = True,print_thetas =True,plot_dt=1, method='one_at_a_time', seed=None, early_stop=None):
         """
-        This function is used to find the initial parameters for the SR model. 
+        This function is used to find the initial parameters for the SR model.
         The function takes the number of iterations, the step size and the parameters to skip as input.
+
+        Parameters
+        ----------
+        seed : int, optional
+            If given, seeds numpy's RNG before the search for reproducibility.
+        early_stop : callable, optional
+            ``early_stop(self.guess) -> bool``. Checked before each iteration; the
+            search stops early once it returns ``True`` (e.g. the fit is already
+            good enough). Lets easy datasets finish without burning all ``niter``.
         """
         import matplotlib.pyplot as plt
+
+        if seed is not None:
+            np.random.seed(seed)
 
         # if step_size is a float, it will be converted to a list of the same size as the number of parameters
         if isinstance(step_size, (int, float)):
             step_size = [step_size] * len(self.theta)
         elif len(step_size) != len(self.theta):
             raise ValueError('The step_size should be a float or a list of the same size as the number of parameters')
-        
+
         old_guess = self.guess
         old_theta = self.theta
         improved = False
@@ -79,13 +105,15 @@ class Guess:
             raise ValueError('The method should be one of the following: one_at_a_time, all_at_once')
 
         for i in range(niter):
+            if early_stop is not None and early_stop(self.guess):
+                break
             work_theta = self.theta.copy()
             for j in range(len(self.theta)):
                 if j not in skip_params:
                     theta = work_theta.copy()
                     theta[j] = theta[j] * np.random.uniform(1 / step_size[j], step_size[j])
                     if method == 'one_at_a_time':
-                        guess = srl.getSr(theta, n=self.npeople, nsteps=self.nsteps, t_end=self.ds.t_end, external_hazard=self.external_hazard, time_step_multiplier=self.time_step_multiplier, parallel=self.parallel)
+                        guess = self._sim(theta, self.ds.t_end)
                         if sr.baysianDistance(self.ds,guess, time_range=self.time_range, dt=self.dt) > sr.baysianDistance( self.ds,self.guess, time_range=self.time_range, dt=self.dt):
                             work_theta = theta
                             self.theta = theta
@@ -94,7 +122,7 @@ class Guess:
                     else:
                         work_theta = theta
             if method == 'all_at_once':
-                guess = srl.getSr(theta, n=self.npeople, nsteps=self.nsteps, t_end=self.ds.t_end, external_hazard=self.external_hazard, time_step_multiplier=self.time_step_multiplier, parallel=self.parallel)
+                guess = self._sim(theta, self.ds.t_end)
                 if sr.baysianDistance(self.ds,guess, time_range=self.time_range, dt=self.dt) > sr.baysianDistance( self.ds,self.guess, time_range=self.time_range, dt=self.dt):
                     self.theta = theta
                     self.guess = guess
@@ -132,6 +160,54 @@ class Guess:
     
 
     
+    def optimize(self, maxiter=120, method='Nelder-Mead', seed=None, verbose=False):
+        """Refine ``theta`` with a derivative-free optimizer (scipy).
+
+        Maximises the Bayesian likelihood ``baysianDistance(data, sim)`` by
+        minimising its negative over ``log(theta)`` (so parameters stay positive).
+        Each objective evaluation runs one simulation at the current
+        resolution, so keep ``maxiter`` modest. This is an alternative to the
+        random-search :meth:`make_guess` and is typically faster and more accurate
+        for the 4-parameter SR model; on a noisy stochastic objective Nelder-Mead
+        is a robust choice.
+
+        Returns the refined guess simulation object and updates ``self.theta`` /
+        ``self.guess`` in place (only if the optimizer improves on the start).
+        """
+        from scipy.optimize import minimize
+
+        if seed is not None:
+            np.random.seed(seed)
+
+        theta0 = np.asarray(self.theta, dtype=float)
+        if np.any(theta0 <= 0):
+            raise ValueError('optimize requires strictly positive theta values')
+        log0 = np.log(theta0)
+
+        def neg_score(log_theta):
+            theta = np.exp(log_theta)
+            try:
+                sim = self._sim(theta, self.ds.t_end)
+                score = sr.baysianDistance(self.ds, sim, time_range=self.time_range, dt=self.dt)
+            except Exception:
+                # Degenerate parameters (e.g. no deaths -> sim lacks death_times) -> worst score
+                return 1e12
+            return 1e12 if not np.isfinite(score) else -score
+
+        try:
+            start_score = sr.baysianDistance(self.ds, self.guess, time_range=self.time_range, dt=self.dt)
+        except Exception:
+            start_score = -np.inf
+        res = minimize(neg_score, log0, method=method, options={'maxiter': maxiter, 'disp': verbose})
+        if np.isfinite(res.fun) and (-res.fun) > start_score:
+            self.theta = list(np.exp(res.x))
+            self.guess = self._sim(self.theta, self.ds.t_end)
+            if verbose:
+                print('optimize improved score', start_score, '->', -res.fun, 'theta=', self.theta)
+        elif verbose:
+            print('optimize did not improve on starting score', start_score)
+        return self.guess
+
     def guessToSeed(self, filename):
         """
         This function saves the guess object params as a seed csv file.

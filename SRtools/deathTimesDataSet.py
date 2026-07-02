@@ -653,6 +653,20 @@ class Dataset:
         """
         return self.getMedianLifetime()
 
+    def getMeanLifetime(self):
+        """
+        Return mean death time for individuals who died (events == 1).
+        """
+        died = self.death_times[self.events == 1]
+        return float(np.mean(died))
+
+    def getCV(self):
+        """
+        Return coefficient of variation (std/mean) of death times for individuals who died (events == 1).
+        """
+        died = self.death_times[self.events == 1]
+        return float(np.std(died) / np.mean(died))
+
     def getSteepness(self, method ='IQR'):
         """
         This function returns the steepness of the survival function as median lifetime/ inter quartile range.

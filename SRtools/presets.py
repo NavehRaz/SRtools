@@ -853,5 +853,10 @@ def getSim(
         config['t_end'] = t_end
     if time_step_multiplier is not None:
         config['time_step_multiplier'] = time_step_multiplier
+    if ExtH:
+        external_hazard = theta_val[-1]
+        theta_val = theta_val[:-1]
+    else:
+        external_hazard = None
 
-    return srh.getSrHetro(theta_val[:-1], external_hazard=theta_val[-1], method=method, parallel=parallel, **config)
+    return srh.getSrHetro(theta_val, external_hazard=external_hazard, method=method, parallel=parallel, **config)
