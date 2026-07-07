@@ -318,12 +318,19 @@ def detect_trend_start(ds, bw_frac=0.06, surv_cut=0.10, floor_frac=0.08):
 # ---------------------------------------------------------------------------
 
 
+#: Steepness metric used throughout the calibration. Inverse CV (mean/std of the
+#: death times) rather than the IQR form; it is the metric the fit is gated on and
+#: reported in QC. Both sides (data & sim) use the same metric so the relative
+#: deviation is scale-free.
+STEEPNESS_METHOD = "inverseCV"
+
+
 def evaluate_fit(sim, ds):
     """Return ``(median_pct_dev, steepness_pct_dev)`` of ``sim`` vs. ``ds``.
 
     Both are absolute relative deviations (sign-safe; ``getSteepness`` can be
     either sign). A non-finite or undefined metric yields ``inf`` for that
-    deviation so callers can flag it.
+    deviation so callers can flag it. Steepness uses :data:`STEEPNESS_METHOD`.
     """
     def _rel(sim_val, data_val):
         if not np.isfinite(sim_val) or not np.isfinite(data_val) or data_val == 0:
@@ -332,24 +339,23 @@ def evaluate_fit(sim, ds):
 
     median_dev = _rel(sim.getMedianLifetime(), ds.getMedianLifetime())
     try:
-        steep_dev = _rel(sim.getSteepness("IQR"), ds.getSteepness("IQR"))
+        steep_dev = _rel(sim.getSteepness(STEEPNESS_METHOD), ds.getSteepness(STEEPNESS_METHOD))
     except (ZeroDivisionError, ValueError, FloatingPointError):
         steep_dev = float("inf")
     return median_dev, steep_dev
 
 
 def conditional_median_steepness(obj, time_range):
-    """Median & steepness of ``obj`` over a window, from the conditional survival.
+    """Median & steepness of ``obj`` over a window.
 
-    ``getMedianLifetime``/``getSteepness`` ignore ``time_range``, so compute both
-    from ``obj.getSurvival(time_range=...)`` — which returns the survival curve
-    sliced to the window and renormalised to 1 at ``time_range[0]`` (the same
-    conditional renormalisation for a data Dataset and a simulation object).
-    Steepness uses the same ``-median/(q3-q1)`` convention as
-    ``Dataset.getSteepness('IQR')`` so values stay comparable.
+    The median is the conditional median from ``obj.getSurvival(time_range=...)`` —
+    the survival curve sliced to the window and renormalised to 1 at
+    ``time_range[0]`` (the same conditional renormalisation for a data Dataset and
+    a simulation object). The steepness is the **inverse CV** (:data:`STEEPNESS_METHOD`)
+    of the death times in the window, via ``obj.getSteepness(..., time_range=...)``.
 
     Returns ``(median, steepness)``; either is ``nan`` if undefined (too few
-    points, survival never crosses 0.5, or zero IQR).
+    points, survival never crosses 0.5, or too few deaths in the window).
     """
     try:
         t, s = obj.getSurvival(time_range=list(time_range))  # keyword: sigs differ across types
@@ -359,11 +365,13 @@ def conditional_median_steepness(obj, time_range):
     if t.size < 4:
         return float("nan"), float("nan")
     median = float("nan") if np.min(s) > 0.5 else float(t[np.argmin(np.abs(s - 0.5))])
-    q1 = t[np.argmin(np.abs(s - 0.25))]
-    q3 = t[np.argmin(np.abs(s - 0.75))]
-    if q3 == q1 or not np.isfinite(median):
+    try:
+        steep = float(obj.getSteepness(STEEPNESS_METHOD, time_range=list(time_range)))
+    except (ZeroDivisionError, ValueError, FloatingPointError, AttributeError):
+        steep = float("nan")
+    if not np.isfinite(median):
         return median, float("nan")
-    return median, -median / (q3 - q1)
+    return median, steep
 
 
 def evaluate_fit_conditional(sim, ds, time_range):
@@ -477,7 +485,7 @@ def auto_fit(
     ml = ds.getML()
     res.data_ml = float(ml) if np.isfinite(ml) else float("nan")
     try:
-        res.data_steepness = float(ds.getSteepness("IQR"))
+        res.data_steepness = float(ds.getSteepness(STEEPNESS_METHOD))
     except Exception:
         res.data_steepness = float("nan")
     n_events = int(np.sum(np.asarray(ds.events) == 1))

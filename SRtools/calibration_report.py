@@ -180,6 +180,7 @@ def plot_diagnostics_overview(results, datasets, out_pdf, per_page=4, sim_npeopl
                 bw = max(3.0, bw_frac * maxlt) if np.isfinite(maxlt) and maxlt > 0 else 3.0
                 color = "#1a7f37" if r.status == "ok" else "#cf222e"
                 t_min = getattr(r, "t_min", float("nan"))
+                tr = getattr(r, "time_range", None)   # [t_min, t_end]; when set the fit was windowed
 
                 # Data with a smoothing bandwidth matched to the guess; re-sim the guess.
                 ds = Dataset(np.asarray(ds0.death_times, float), np.asarray(ds0.events),
@@ -195,14 +196,18 @@ def plot_diagnostics_overview(results, datasets, out_pdf, per_page=4, sim_npeopl
                     sim = None
 
                 ax_s, ax_h, ax_d = axes[row]
-                # survival
+                # survival — when the fit was windowed, show the CONDITIONAL survival over
+                # [t_min, t_end] (renormalised to 1 at t_min via the built-in getSurvival/
+                # plotSurvival time_range slice), so the panel shows exactly what was fit & gated.
                 try:
-                    ds.plotSurvival(ax_s, CI=False, color="black", lw=1.3, label="data")
+                    ds.plotSurvival(ax_s, time_range=tr, CI=False, color="black", lw=1.3, label="data")
                     if sim is not None:
-                        sim.plotSurvival(ax_s, CI=False, color="tab:blue", ls="--", lw=1.2, label="guess")
+                        sim.plotSurvival(ax_s, time_range=tr, CI=False, color="tab:blue", ls="--",
+                                         lw=1.2, label="guess")
                 except Exception:
                     pass
-                ax_s.set_ylim(-0.02, 1.02); ax_s.set_ylabel("survival", fontsize=7)
+                ax_s.set_ylim(-0.02, 1.02)
+                ax_s.set_ylabel("survival | t_min" if tr is not None else "survival", fontsize=7)
                 ax_s.legend(fontsize=6, loc="upper right")
                 # hazard (log y)
                 try:

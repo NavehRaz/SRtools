@@ -660,23 +660,60 @@ class Dataset:
         died = self.death_times[self.events == 1]
         return float(np.mean(died))
 
-    def getCV(self):
+    def getCV(self, time_range=None):
         """
         Return coefficient of variation (std/mean) of death times for individuals who died (events == 1).
+
+        Parameters:
+            time_range (tuple, optional): If given as ``(t0, t1)``, restrict to deaths within the
+                window before computing std/mean (used for a windowed / conditional steepness).
+                Default None (all deaths).
+
+        Returns nan if fewer than two deaths fall in the window or the mean is zero.
         """
         died = self.death_times[self.events == 1]
-        return float(np.std(died) / np.mean(died))
+        if time_range is not None:
+            t0, t1 = time_range
+            died = died[(died >= t0) & (died <= t1)]
+        if died.size < 2:
+            return float('nan')
+        mean = np.mean(died)
+        if mean == 0:
+            return float('nan')
+        return float(np.std(died) / mean)
 
-    def getSteepness(self, method ='IQR'):
+    def getSteepness(self, method ='IQR', time_range=None):
         """
         This function returns the steepness of the survival function as median lifetime/ inter quartile range.
-        
+
         Parameters:
             method (str, optional): The method to calculate steepness. Default is 'IQR'.
-        
+            time_range (tuple, optional): Restrict the metric to the window ``(t0, t1)``. For
+                ``method='inverseCV'`` this filters the death times; for ``method='IQR'`` the
+                quartiles are read from the conditional survival ``getSurvival(time_range=...)``.
+                Default None (full range). Backward compatible (keyword with default).
+
         Returns:
             steepness (float): The steepness of the survival function.
         """
+        if method == 'inverseCV':
+            # inverse coefficient of variation = mean/std of the (windowed) death times.
+            cv = self.getCV(time_range=time_range)
+            if not np.isfinite(cv) or cv == 0:
+                return float('nan')
+            return 1.0 / cv
+        if time_range is not None and method == 'IQR':
+            # Conditional IQR steepness read from the renormalized windowed survival.
+            t, s = self.getSurvival(time_range=list(time_range))
+            t = np.asarray(t, dtype=float); s = np.asarray(s, dtype=float)
+            if t.size < 4 or np.min(s) > 0.5:
+                return float('nan')
+            median = float(t[np.argmin(np.abs(s - 0.5))])
+            q1 = t[np.argmin(np.abs(s - 0.25))]
+            q3 = t[np.argmin(np.abs(s - 0.75))]
+            if q3 == q1:
+                return float('nan')
+            return -median / (q3 - q1)
         t,s = self.survival
         if method == 'IQR':
             q1 = t[np.argmin(np.abs(s-0.25))]

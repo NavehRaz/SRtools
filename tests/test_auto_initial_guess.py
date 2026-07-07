@@ -224,15 +224,47 @@ class _SurvStub:
         return t, s
 
 
-def test_conditional_median_steepness_known_curve():
-    # Linear conditional survival 1->0 over [0,100]: median 50, q1@75, q3@25 -> steep = -50/(25-75)=1.0
-    t = np.linspace(0, 100, 101)
-    s = 1 - t / 100.0
-    med, steep = aig.conditional_median_steepness(_SurvStub(t, s), [0, 100])
-    assert med == pytest.approx(50, abs=1.5)
-    assert steep == pytest.approx(1.0, abs=0.1)
+def test_conditional_median_steepness_inverse_cv():
+    # Steepness is now the inverse CV (mean/std) of the death times inside the window;
+    # the median still comes from the conditional survival curve.
+    rng = np.random.default_rng(0)
+    dt = rng.uniform(200, 1000, size=3000)
+    ds = Dataset(dt, np.ones_like(dt))
+    tr = [200, 1000]
+    med, steep = aig.conditional_median_steepness(ds, tr)
+    died = dt[(dt >= tr[0]) & (dt <= tr[1])]
+    assert steep == pytest.approx(float(np.mean(died) / np.std(died)), rel=1e-6)
+    assert med == pytest.approx(float(np.median(dt)), rel=0.1)
 
 
 def test_conditional_median_steepness_too_few_points():
     med, steep = aig.conditional_median_steepness(_SurvStub([0, 1], [1, 0.9]), [0, 1])
     assert math.isnan(med) and math.isnan(steep)
+
+
+# --- getCV / getSteepness: inverse CV + time_range (backward compatible) ----
+
+def test_getcv_and_inverse_cv_windowed():
+    dt = np.array([10., 20., 30., 40., 50., 500., 600.])   # last two outside the window
+    ds = Dataset(dt, np.ones_like(dt))
+    win = [0, 100]
+    inwin = dt[(dt >= win[0]) & (dt <= win[1])]
+    assert ds.getCV(time_range=win) == pytest.approx(float(np.std(inwin) / np.mean(inwin)), rel=1e-9)
+    # inverseCV == 1/CV, and it is higher over the tighter window than full range
+    assert ds.getSteepness("inverseCV", time_range=win) == pytest.approx(
+        float(np.mean(inwin) / np.std(inwin)), rel=1e-9)
+    assert ds.getSteepness("inverseCV", time_range=win) > ds.getSteepness("inverseCV")
+
+
+def test_getcv_windowed_too_few_deaths_is_nan():
+    ds = Dataset(np.array([10., 500., 600.]), np.ones(3))
+    assert math.isnan(ds.getCV(time_range=[0, 100]))          # only one death in window
+    assert math.isnan(ds.getSteepness("inverseCV", time_range=[0, 100]))
+
+
+def test_getsteepness_iqr_default_unchanged():
+    # Default method stays 'IQR' and ignores time_range when not passed (backward compat).
+    dt = np.linspace(10, 1000, 400)
+    ds = Dataset(dt, np.ones_like(dt))
+    assert np.isfinite(ds.getSteepness())        # default IQR still works, no kwargs
+    assert ds.getSteepness("IQR") == ds.getSteepness()
