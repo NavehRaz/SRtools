@@ -31,7 +31,7 @@ def _coerce_xy(surv):
 
 
 def plot_survival_overview(results, out_pdf, rows=4, cols=3, dev_threshold=0.15,
-                           title="Initial-guess survival fits"):
+                           title="Initial-guess survival fits", datasets=None):
     """Write one PDF of data-vs-guess survival panels, paginated ``rows x cols``.
 
     Parameters
@@ -43,6 +43,10 @@ def plot_survival_overview(results, out_pdf, rows=4, cols=3, dev_threshold=0.15,
         Output PDF path (exactly one file is written).
     rows, cols : int
         Panels per page. Default 4x3 = 12 readable panels per landscape page.
+    datasets : dict[str, Dataset], optional
+        Maps ``FitResult.species`` -> its Dataset. When given, the cumulative
+        censored fraction is overlaid on each panel (``plotCensoringCDF``).
+        Backward compatible: default None leaves the plot unchanged.
 
     Returns
     -------
@@ -90,6 +94,12 @@ def plot_survival_overview(results, out_pdf, rows=4, cols=3, dev_threshold=0.15,
                 t_min = getattr(r, "t_min", float("nan"))
                 if np.isfinite(t_min):
                     ax.axvline(t_min, color="#999999", ls=":", lw=0.8)
+
+                if datasets is not None and getattr(r, "species", None) in datasets:
+                    try:   # cumulative censored fraction (shares the [0,1] axis)
+                        datasets[r.species].plotCensoringCDF(ax, color="tab:orange", lw=1.0, label="censored")
+                    except Exception:
+                        pass
 
                 ax.set_ylim(-0.02, 1.02)
                 ax.set_title(r.species, fontsize=8, color=color)
@@ -204,21 +214,23 @@ def plot_diagnostics_overview(results, datasets, out_pdf, per_page=4, sim_npeopl
                     if sim is not None:
                         sim.plotSurvival(ax_s, time_range=tr, CI=False, color="tab:blue", ls="--",
                                          lw=1.2, label="guess")
+                    ds.plotCensoringCDF(ax_s, color="tab:orange", lw=1.0, label="censored")  # cumulative censored fraction
                 except Exception:
                     pass
                 ax_s.set_ylim(-0.02, 1.02)
                 ax_s.set_ylabel("survival | t_min" if tr is not None else "survival", fontsize=7)
                 ax_s.legend(fontsize=6, loc="upper right")
-                # hazard (log y)
+                # hazard (log y) + censoring hazard on a twin axis (own scale)
                 try:
                     ds.plotHazard(ax_h, CI=False, color="black", lw=1.2)
                     if sim is not None:
                         sim.plotHazard(ax_h, CI=False, color="tab:blue", ls="--", lw=1.1)
                     ax_h.set_yscale("log")
+                    ds.plotCensoringHazard(ax_h, twin=True, bandwidth=bw, color="tab:orange", lw=1.0)
                 except Exception:
                     pass
                 ax_h.set_ylabel("hazard (log)", fontsize=7)
-                # death-time distribution (normalised histograms of died ages)
+                # death-time distribution (normalised histograms of died ages) + censoring times
                 dd, gd = _died(ds), (_died(sim) if sim is not None else None)
                 if dd is not None and dd.size:
                     hi = np.nanmax(dd) if gd is None or not gd.size else max(np.nanmax(dd), np.nanmax(gd))
@@ -227,6 +239,11 @@ def plot_diagnostics_overview(results, datasets, out_pdf, per_page=4, sim_npeopl
                     if gd is not None and gd.size:
                         ax_d.hist(gd, bins=bins, density=True, histtype="step", color="tab:blue",
                                   ls="--", label="guess")
+                    try:
+                        ds.plotCensoringTimesDistribution(ax_d, bins=bins, density=True,
+                                                          color="tab:orange", lw=1.0, label="censored")
+                    except Exception:
+                        pass
                 ax_d.set_ylabel("death-time density", fontsize=7)
 
                 for ax in (ax_s, ax_h, ax_d):

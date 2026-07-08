@@ -573,9 +573,98 @@ class Dataset:
         ax.spines['right'].set_visible(False)
         ax.spines['top'].set_visible(False)
         return ax, bins
-    
-    
-    
+
+
+    # ------------------------------------------------------------------
+    # Censoring visualisations (companions to the survival / hazard /
+    # death-time plots above). Censored individuals are events == 0.
+    # All are additive overlays and do not alter the existing plots.
+    # ------------------------------------------------------------------
+    def _censoring_times(self):
+        """Ages at which censored individuals (events == 0) left the study."""
+        ev = np.asarray(self.events)
+        return np.asarray(self.death_times, dtype=float)[ev == 0]
+
+    def plotCensoringCDF(self, ax=None, **kwargs):
+        """Overlay the cumulative fraction of the *whole population* censored by age t.
+
+        Rises from 0 to the total censored fraction; equals 1 iff every individual is
+        censored. Values live in [0, 1], so this shares the survival plot's y-axis —
+        overlay it on :meth:`plotSurvival`. New method; existing plots are unchanged.
+
+        Parameters
+        ----------
+        ax : matplotlib axis, optional
+        **kwargs : passed to ``ax.step`` (color/lw/label/ls...).
+        """
+        if ax is None:
+            fig, ax = plt.subplots()
+        ct = np.sort(self._censoring_times())
+        n = len(self.events)
+        t = np.concatenate(([0.0], ct))
+        y = (np.arange(len(ct) + 1) / n) if n else np.zeros(len(ct) + 1)
+        kwargs.setdefault('color', 'tab:orange')
+        kwargs.setdefault('lw', 1.0)
+        kwargs.setdefault('label', 'censored (CDF)')
+        ax.step(t, y, where='post', **kwargs)
+        return ax
+
+    def plotCensoringHazard(self, ax=None, bandwidth=None, twin=True, color='tab:orange',
+                            label='censoring hazard', log=True, **kwargs):
+        """Plot the smoothed **censoring hazard** (Nelson–Aalen with censoring as the event).
+
+        By default drawn on a **twin y-axis** with its own scale, so the primary
+        (death) hazard axis is not trimmed / stretched / compressed. Pass ``twin=False``
+        to draw on the given axis instead. Returns the axis actually drawn on.
+        """
+        if ax is None:
+            fig, ax = plt.subplots()
+        if bandwidth is None:
+            bandwidth = self.bandwidth
+        E_cens = 1 - np.asarray(self.events)
+        target = ax.twinx() if twin else ax
+        if E_cens.sum() < 1:                      # nothing censored -> nothing to draw
+            return target
+        naf_c = NelsonAalenFitter().fit(np.asarray(self.death_times, dtype=float), event_observed=E_cens)
+        hz = naf_c.smoothed_hazard_(bandwidth=bandwidth)
+        t = np.asarray(hz.index, dtype=float)
+        h = np.asarray(hz.iloc[:, 0].values, dtype=float)
+        target.plot(t, np.maximum(h, 1e-12) if log else h, color=color, label=label, **kwargs)
+        if log:
+            target.set_yscale('log')
+        if twin:
+            target.set_ylabel(label, color=color, fontsize=7)
+            target.tick_params(axis='y', labelcolor=color, labelsize=6)
+            target.spines['top'].set_visible(False)
+        return target
+
+    def plotCensoringTimesDistribution(self, ax=None, bins=None, dt=1, time_range=None,
+                                       density=False, **kwargs):
+        """Step distribution of **censoring times** (events == 0), the censoring analogue of
+        :meth:`plotDeathTimesDistribution`.
+
+        Normalised by the total population (fraction censored per bin) unless
+        ``density=True`` (each histogram integrates to 1, to overlay density histograms).
+        """
+        if ax is None:
+            fig, ax = plt.subplots()
+        ct = self._censoring_times()
+        if time_range is not None:
+            ct = ct[(ct >= time_range[0]) & (ct <= time_range[1])]
+        if bins is None:
+            if time_range is not None:
+                bins = np.linspace(time_range[0], time_range[1], int(time_range[1] - time_range[0] + 1))
+            else:
+                bins = np.linspace(0, self.t_end, int(self.t_end // dt + 1))
+        counts, edges = np.histogram(ct, bins=bins, density=density)
+        if not density and len(self.events):
+            counts = counts / len(self.events)
+        kwargs.setdefault('color', 'tab:orange')
+        kwargs.setdefault('label', 'censored')
+        ax.step(edges[:-1], counts, where='post', **kwargs)
+        return ax, bins
+
+
     def getSurvival(self,interpolate_time = None, time_range = None):
         """
         This function returns the survival function for the  dataset.
